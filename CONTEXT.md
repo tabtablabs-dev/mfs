@@ -40,6 +40,8 @@ Local bounded cache of downloaded file bytes or text chunks used for `cat`, `gre
 
 Default location is user cache (`~/.cache/mfs/`), but commands accept `--store` for repo-local/project-pinned indexes such as `.mfs/index.sqlite`.
 
+Freshness policy is hybrid: metadata detects candidate changes; sha256 is computed only for cached/indexed content; `--refresh` forces reread/reindex.
+
 ### Agent Query
 
 A bounded, machine-readable operation an agent can run safely to answer filesystem questions: list, tree, stat, find, grep, search, manifest, changed, diff, cat range.
@@ -61,6 +63,7 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - Modal adapter is SDK-first, not a wrapper around the `modal volume` CLI.
 - MVP index includes metadata, bounded text content cache, and SQLite FTS5 lexical search; semantic/vector search is post-MVP.
 - Store/cache policy is hybrid: default to user cache, allow explicit `--store` for repo-local reproducibility.
+- Cache invalidation policy is hybrid: metadata for change candidates, hashes for cached content, refresh flags for forcing correctness.
 
 ## Modal Volume concurrency facts
 

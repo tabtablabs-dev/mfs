@@ -232,6 +232,39 @@ Behavior:
 - Content cache should be colocated with the selected store unless overridden later.
 - `.mfs/` is ignored by default in this repo, but users may intentionally commit manifests, not caches.
 
+## Cache invalidation and freshness
+
+Decision: hybrid freshness policy.
+
+Metadata is used to identify candidate changes; hashes are computed only for content that `mfs` actually reads into cache/index.
+
+Per cached chunk/file, store:
+
+```text
+source_size
+source_mtime_or_remote_fingerprint
+sha256          # only when content was read
+indexed_at
+remote_seen_at
+cache_state     # metadata_only | content_cached | text_indexed | skipped
+skip_reason     # too_large | binary | likely_secret | decode_error | unsupported
+```
+
+Command behavior:
+
+- `ls`, `tree`, and `find` refresh remote metadata when they can do so cheaply.
+- `index`/`update` refresh metadata and reindex only changed, uncached, or unsafe-to-trust entries.
+- `grep` and `search --lex` use the local index by default and include freshness/staleness metadata in JSON output.
+- `--refresh` forces reread/reindex before answering where applicable.
+- Future `--max-age` may reject or warn on stale index entries older than a requested age.
+- `changed` compares manifests/index rows using metadata first, hashes when available.
+
+Correctness language:
+
+- Metadata-only results answer "what Modal currently reports."
+- Indexed content results answer "what was cached/indexed at `indexed_at`."
+- `--refresh` is the path for stronger current-content confidence.
+
 ## Safety defaults
 
 - No command downloads a directory recursively unless explicitly requested.
@@ -287,9 +320,8 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 ## Open decisions for grilling
 
 1. Exact SDK profile plumbing and minimum supported Modal SDK version.
-2. Cache invalidation rules.
-3. Default max file size for content indexing.
-4. MCP server in MVP or after CLI stabilizes.
-5. Whether to design for local-only index or index stored inside Modal Volume.
-6. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
-7. Whether to support multiple Modal profiles/workspaces.
+2. Default max file size for content indexing.
+3. MCP server in MVP or after CLI stabilizes.
+4. Whether to design for local-only index or index stored inside Modal Volume.
+5. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
+6. Whether to support multiple Modal profiles/workspaces.
