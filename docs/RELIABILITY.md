@@ -19,7 +19,9 @@ Modal Volumes v2 make distinct-file concurrent writes much safer and more scalab
 Default reliability policy:
 
 - Reads and metadata queries may run concurrently.
+- MVP includes thin write primitives: `get`, `put`, `rm`, and `cp`.
 - Writes to different target paths may run concurrently.
 - Overwrite/delete/rename operations require explicit flags.
+- MVP does not include a mutation queue.
 - If `mfs` later adds a mutation queue, call it a cooperative queue, not a lock manager.
 - For same-path writes, prefer compare-before-write using known hashes/manifests when available.

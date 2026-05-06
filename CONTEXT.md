@@ -44,6 +44,7 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - POSIX mount is not MVP.
 - JSON output is first-class.
 - Volumes are treated as write-once/read-many optimized storage; mutation flows must make concurrency semantics explicit.
+- MVP includes thin write primitives (`put`, `get`, `rm`, `cp`) with guardrails; it does not include a mutation queue.
 
 ## Modal Volume concurrency facts
 
@@ -59,4 +60,3 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 
 - Should remote identity be `modal://ENV/VOLUME/path`, `modal://PROFILE/ENV/VOLUME/path`, or flags plus path?
 - Is `search` lexical-only for MVP, or does MVP include semantic/vector search?
-- Do writes need an optional serialized mutation queue for same-path or same-prefix operations?

@@ -152,12 +152,13 @@ FTS5 virtual table can index `chunks.text` after MVP metadata is stable.
 
 MVP should not pretend to provide locking Modal does not provide.
 
-Recommended stance:
+Resolved MVP stance:
 
 1. Read/query commands are fully parallel-safe.
 2. Distinct-path writes are allowed, but output must include operation metadata and warnings when freshness is uncertain.
 3. Same-path overwrite/delete/rename is guarded by explicit flags.
-4. Optional serialized mutation queue is a post-MVP feature unless we choose to make `mfs` a write coordinator, not just a CLI.
+4. MVP includes thin write primitives: `get`, `put`, `rm`, and `cp`.
+5. MVP does not include a serialized mutation queue; queueing remains a post-MVP option.
 
 Candidate queue design if needed:
 
@@ -175,7 +176,7 @@ Queue semantics:
 - Write audit records to sidecar index and optionally `.mfs/mutations/log.jsonl` in the Volume.
 - Do not claim distributed locking; call it a cooperative mutation queue.
 
-Open question: is cooperative queuing core to `mfs`, or should MVP only warn and provide primitives?
+Decision: cooperative queuing is not core to MVP. MVP should warn, expose primitives, and record mutation metadata locally.
 
 ## Open decisions for grilling
 
@@ -187,6 +188,5 @@ Open question: is cooperative queuing core to `mfs`, or should MVP only warn and
 6. Whether `mfs search` means lexical search first or vector/hybrid search.
 7. MCP server in MVP or after CLI stabilizes.
 8. Whether to design for local-only index or index stored inside Modal Volume.
-9. How much write coverage MVP should expose.
+9. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
 10. Whether to support multiple Modal profiles/workspaces.
-11. Whether same-path writes need a cooperative mutation queue in MVP.
