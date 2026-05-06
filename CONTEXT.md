@@ -14,7 +14,7 @@ Canonical address for a Modal Volume path.
 modal://ENV/VOLUME/path
 ```
 
-Open question: whether `mfs` should expose explicit URI syntax (`modal://ENV/VOLUME/path`) or remote-filesystem path syntax (`Volumes/modal/ENV/VOLUME/path`) as the primary user-facing address.
+Decision: `mfs` exposes remote-filesystem path syntax (`Volumes/modal/ENV/VOLUME/path`) as the primary user-facing address, while accepting explicit URI syntax (`modal://ENV/VOLUME/path`) as canonical machine syntax.
 
 ### Remote Filesystem Path
 
@@ -24,7 +24,7 @@ Filesystem-like address that treats Modal Volumes as mounted remote roots withou
 Volumes/modal/ENV/VOLUME/path
 ```
 
-This may be more natural for agents and humans issuing filesystem-style commands.
+The environment segment is required in MVP to avoid hidden Modal default environment state.
 
 ### Sidecar Index
 
@@ -55,6 +55,7 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - JSON output is first-class.
 - Volumes are treated as write-once/read-many optimized storage; mutation flows must make concurrency semantics explicit.
 - MVP includes thin write primitives (`put`, `get`, `rm`, `cp`) with guardrails; it does not include a mutation queue.
+- Remote filesystem paths require an explicit environment segment: `Volumes/modal/ENV/VOLUME/path`.
 
 ## Modal Volume concurrency facts
 
@@ -68,6 +69,4 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 
 ## Open language questions
 
-- Should remote identity be `modal://ENV/VOLUME/path`, `modal://PROFILE/ENV/VOLUME/path`, or flags plus path?
-- Should the primary address syntax be `modal://ENV/VOLUME/path` or `Volumes/modal/ENV/VOLUME/path`?
 - Is `search` lexical-only for MVP, or does MVP include semantic/vector search?

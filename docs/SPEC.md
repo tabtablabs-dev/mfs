@@ -44,7 +44,7 @@ modal://main/models/qwen/model.safetensors
 modal://dev/agent-workspaces/run-123/trace.jsonl
 ```
 
-Decision pending: whether `ENV` is required or defaults from Modal profile.
+Decision: `ENV` is required in MVP and must not silently default from Modal profile state.
 
 ## Alternative remote-filesystem address
 
@@ -80,7 +80,7 @@ Cons:
 - Needs careful parsing so users do not expect it to exist on disk.
 - Shell completion and error messages must explain that `Volumes/...` is a virtual path handled by `mfs`.
 
-Recommended resolution: use remote-filesystem paths as the primary CLI UX and keep `modal://ENV/VOLUME/path` as a canonical machine URI accepted everywhere.
+Resolution: use remote-filesystem paths as the primary CLI UX and keep `modal://ENV/VOLUME/path` as a canonical machine URI accepted everywhere. The environment segment is required in both forms for MVP.
 
 Primary examples:
 
@@ -231,7 +231,7 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 
 ## Open decisions for grilling
 
-1. URI shape and environment/profile handling.
+1. Whether Modal profile/workspace selection is needed in MVP, or environment + active Modal auth is enough.
 2. MVP implementation language/package: Python + Click + Modal SDK vs shelling out to `modal volume`.
 3. Whether metadata-only index is MVP, or FTS grep/search must be MVP.
 4. Cache location and invalidation rules.
