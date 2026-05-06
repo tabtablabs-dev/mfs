@@ -11,7 +11,7 @@ import base64
 import contextlib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from mfs.errors import MfsError
@@ -261,6 +261,139 @@ class ModalAdapter:
             )
         return _cat_result_from_bytes(target, response, data, requested_len=length)
 
+    async def path_exists(self, target: ParsedTarget) -> bool:
+        self._require_modal_path(target)
+        if target.path == "/":
+            return True
+        try:
+            await self.list_files(target, recursive=False, limit=1)
+        except MfsError as exc:
+            if exc.code == "REMOTE_NOT_FOUND":
+                return False
+            raise
+        return True
+
+    async def get_path(
+        self,
+        target: ParsedTarget,
+        *,
+        local_dest: Path,
+        recursive: bool,
+        force: bool,
+        limit: int,
+    ) -> dict[str, Any]:
+        self._require_modal_path(target)
+        async with self.client(target.profile or "") as client:
+            volume = await self._hydrate_volume(target, client)
+            if recursive:
+                entries = await self.list_files(target, recursive=True, limit=limit)
+                files = [entry for entry in entries if entry.type == "file"]
+                local_dest.mkdir(parents=True, exist_ok=True)
+                for entry in files:
+                    relative = PurePosixPath(entry.path).relative_to(PurePosixPath(target.path))
+                    await self._write_remote_file(
+                        volume,
+                        remote_path=entry.path,
+                        local_path=local_dest / Path(*relative.parts),
+                        force=force,
+                    )
+                return {
+                    "operation": "get",
+                    "source_uri": target.canonical_uri,
+                    "local_dest": str(local_dest),
+                    "recursive": recursive,
+                    "entry_count": len(entries),
+                    "file_count": len(files),
+                }
+            await self._write_remote_file(
+                volume,
+                remote_path=target.path,
+                local_path=local_dest,
+                force=force,
+            )
+        return {
+            "operation": "get",
+            "source_uri": target.canonical_uri,
+            "local_dest": str(local_dest),
+            "recursive": recursive,
+            "entry_count": 1,
+            "file_count": 1,
+        }
+
+    async def put_path(
+        self,
+        local_path: Path,
+        target: ParsedTarget,
+        *,
+        recursive: bool,
+        force: bool,
+    ) -> dict[str, Any]:
+        self._require_modal_path(target)
+        async with self.client(target.profile or "") as client:
+            volume = await self._hydrate_volume(target, client)
+            async with volume.batch_upload(force=force) as batch:
+                if local_path.is_dir():
+                    batch.put_directory(local_path, target.path, recursive=recursive)
+                else:
+                    batch.put_file(local_path, target.path)
+        return {
+            "operation": "put",
+            "source_path": str(local_path),
+            "target_uri": target.canonical_uri,
+            "recursive": recursive,
+            "overwrote": force,
+            "confirmed_by_flag": force,
+        }
+
+    async def remove_path(self, target: ParsedTarget, *, recursive: bool) -> dict[str, Any]:
+        self._require_modal_path(target)
+        async with self.client(target.profile or "") as client:
+            volume = await self._hydrate_volume(target, client)
+            try:
+                await volume.remove_file(target.path, recursive=recursive)
+            except Exception as exc:  # noqa: BLE001
+                raise self._convert_modal_error(exc, uri=target.canonical_uri) from exc
+        return {
+            "operation": "rm",
+            "target_uri": target.canonical_uri,
+            "recursive": recursive,
+            "confirmed_by_flag": True,
+        }
+
+    async def copy_path(
+        self,
+        source: ParsedTarget,
+        target: ParsedTarget,
+        *,
+        recursive: bool,
+    ) -> dict[str, Any]:
+        self._require_modal_path(source)
+        self._require_modal_path(target)
+        async with self.client(source.profile or "") as client:
+            volume = await self._hydrate_volume(source, client)
+            try:
+                await volume.copy_files([source.path], target.path, recursive=recursive)
+            except Exception as exc:  # noqa: BLE001
+                raise self._convert_modal_error(exc, uri=source.canonical_uri) from exc
+        return {
+            "operation": "cp",
+            "source_uri": source.canonical_uri,
+            "target_uri": target.canonical_uri,
+            "recursive": recursive,
+        }
+
+    async def mkdir_path(self, target: ParsedTarget, *, parents: bool) -> dict[str, Any]:
+        self._require_modal_path(target)
+        raise MfsError(
+            code="UNSUPPORTED_OPERATION",
+            message=(
+                "Modal SDK does not expose an explicit mkdir operation; create directories via put"
+            ),
+            uri=target.canonical_uri,
+            retryable=False,
+            details={"parents": parents},
+        )
+
     async def _get_file_response(
         self,
         client: Any,
@@ -400,7 +533,7 @@ class ModalAdapter:
             type_label = FileEntryType(entry.type).name.lower()
         except Exception:  # noqa: BLE001
             type_label = str(entry.type)
-        path = entry.path or "/"
+        path = _normalize_modal_path(entry.path or "/")
         return FsEntry(
             path=path,
             name=PurePosixPath(path).name or "/",
@@ -434,6 +567,26 @@ class ModalAdapter:
                                 details={"max_bytes": byte_cap},
                             )
         return bytes(data)
+
+    async def _write_remote_file(
+        self,
+        volume: Any,
+        *,
+        remote_path: str,
+        local_path: Path,
+        force: bool,
+    ) -> None:
+        if local_path.exists() and not force:
+            raise MfsError(
+                code="LOCAL_DEST_EXISTS",
+                message="Local destination already exists; pass --force to overwrite",
+                uri=str(local_path),
+                retryable=False,
+            )
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        with local_path.open("wb") as handle:
+            async for chunk in volume.read_file(remote_path):
+                handle.write(chunk)
 
     def _convert_modal_error(self, exc: Exception, *, uri: str | None) -> MfsError:
         message = str(exc)

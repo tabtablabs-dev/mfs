@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
 from mfs.errors import MfsError, invalid_target
+from mfs.state import require_cwd
 
 TargetKind = Literal[
     "providers_root",
@@ -49,6 +51,78 @@ def parse_target(target: str) -> ParsedTarget:
     if target.startswith("modal://"):
         return _parse_modal_uri(target)
     return _parse_virtual_path(target)
+
+
+def resolve_target(target: str | None, *, state_path: Path | None = None) -> ParsedTarget:
+    """Resolve absolute, cwd-relative, and in-volume absolute targets."""
+    if target is None or not target.strip():
+        target = require_cwd(state_path=state_path)
+    target = target.strip()
+    if _is_absolute_remote_target(target):
+        return parse_target(target)
+
+    cwd = require_cwd(state_path=state_path)
+    cwd_parsed = parse_target(cwd)
+    if target.startswith("/"):
+        if cwd_parsed.kind != "modal_path":
+            raise MfsError(
+                code="CWD_VOLUME_REQUIRED",
+                message=(
+                    f"Absolute-in-volume path {target!r} requires cwd inside a Modal Volume; "
+                    "use Volumes/... or cd into a volume first"
+                ),
+                retryable=False,
+            )
+        parts = _cwd_virtual_parts(cwd_parsed)[:5] + [part for part in target.split("/") if part]
+        return parse_target(_virtual_target_from_parts(parts))
+
+    parts = _apply_relative_parts(_cwd_virtual_parts(cwd_parsed), target)
+    return parse_target(_virtual_target_from_parts(parts))
+
+
+def _is_absolute_remote_target(target: str) -> bool:
+    return target.startswith("modal://") or target == "Volumes" or target.startswith("Volumes/")
+
+
+def _cwd_virtual_parts(parsed: ParsedTarget) -> list[str]:
+    if parsed.kind == "providers_root":
+        return ["Volumes"]
+    if parsed.kind == "modal_profiles":
+        return ["Volumes", "modal"]
+    if parsed.kind == "modal_environments":
+        return ["Volumes", "modal", parsed.profile or ""]
+    if parsed.kind == "modal_volumes":
+        return ["Volumes", "modal", parsed.profile or "", parsed.environment or ""]
+    if parsed.kind == "modal_path":
+        parts = [
+            "Volumes",
+            "modal",
+            parsed.profile or "",
+            parsed.environment or "",
+            parsed.volume or "",
+        ]
+        parts.extend(part for part in parsed.path.split("/") if part)
+        return parts
+    raise invalid_target("Cannot resolve cwd", parsed.raw)
+
+
+def _apply_relative_parts(base_parts: list[str], relative: str) -> list[str]:
+    parts = list(base_parts)
+    for part in relative.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if len(parts) > 1:
+                parts.pop()
+            continue
+        parts.append(part)
+    return parts
+
+
+def _virtual_target_from_parts(parts: list[str]) -> str:
+    if len(parts) == 1:
+        return "Volumes/"
+    return "/".join(parts)
 
 
 def _parse_modal_uri(target: str) -> ParsedTarget:

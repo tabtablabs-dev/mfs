@@ -6,28 +6,34 @@ Modal Volume filesystem/query CLI for agents.
 
 ## Status
 
-`v0.0.1` alpha. Ready for OSS source release.
-
-Implemented in v0.0.1:
+The package version is `v0.0.1`. The current worktree implements the MVP command surface from `docs/SPEC.md`.
 
 ```text
 mfs version [--json]
 mfs doctor [TARGET] [--json]
-mfs ls TARGET [--limit N] [--recursive] [--json]
+mfs cd [TARGET] [--json]
+mfs pwd [--json]
+mfs ls [TARGET] [-a] [-l] [--limit N] [--recursive] [--json]
+mfs tree [TARGET] [--depth N] [--limit N] [--json]
 mfs stat TARGET [--json]
-mfs cat TARGET [--bytes START:LEN] [--max-bytes N] [--json]
+mfs cat TARGET [--bytes START:LEN] [--lines START:END] [--max-bytes N] [--json]
+mfs du TARGET [-s] [-h] [--depth N] [--limit N] [--json]
+mfs find TARGET --glob GLOB [--size EXPR] [--mtime EXPR] [--json]
+mfs index TARGET [--store PATH] [--max-bytes N] [--json]
+mfs update TARGET [--store PATH] [--max-bytes N] [--json]
+mfs grep TARGET PATTERN [--glob GLOB] [--context N] [--json]
+mfs search TARGET QUERY --lex [--json]
+mfs manifest TARGET [--jsonl]
+mfs changed TARGET --since MANIFEST_OR_INDEX [--json]
+mfs get TARGET LOCAL_DEST [--recursive] [--force]
+mfs put LOCAL_PATH TARGET [--recursive] [--force]
+mfs rm TARGET [--recursive] --yes
+mfs cp SRC DST [--recursive] [--force]
+mfs mv SRC DST [--force] --yes
+mfs mkdir TARGET [--parents]
 ```
 
-Planned after v0.0.1:
-
-```text
-mfs tree
-mfs index / update
-mfs find / grep / search --lex
-mfs manifest / changed
-mfs get / put / rm / cp guarded write primitives
-MCP server
-```
+`mfs mkdir` currently fails closed with `UNSUPPORTED_OPERATION` because Modal's SDK does not expose an explicit mkdir primitive. Create directory-like paths by uploading files with `put`.
 
 ## Install from source
 
@@ -122,14 +128,16 @@ mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path/file.json --bytes 0:4096 --json
 
 ## Safety model
 
-v0.0.1 is intentionally read-only against Modal Volumes.
-
 Defaults and guardrails:
 
 - No recursive listing unless `--recursive` is explicit.
 - Every remote listing is capped by `--limit`.
 - Every `cat` is capped by `--max-bytes`.
 - `cat --bytes START:LEN` fails if `LEN > --max-bytes`.
+- `du`, `tree`, `find`, `index`, `manifest`, and recursive `get` use explicit traversal limits.
+- `rm` and `mv` require `--yes`.
+- `put`, `cp`, and `mv` require `--force` before overwriting a remote destination.
+- `put` requires `--recursive` when the local source is a directory.
 - Broad Modal paths can fail with `PATH_TOO_BROAD`; `mfs` reports that as a structured error and tells the agent to narrow the prefix.
 - `mfs` does not print Modal token values.
 
@@ -162,16 +170,27 @@ Errors use stable machine-readable codes:
 Current codes include:
 
 ```text
+CONFIRMATION_REQUIRED
+CROSS_VOLUME_UNSUPPORTED
+CWD_NOT_SET
+CWD_VOLUME_REQUIRED
 INVALID_TARGET
+LOCAL_DEST_EXISTS
+LOCAL_NOT_FOUND
 MODAL_SDK_UNAVAILABLE
 MODAL_PROFILE_NOT_FOUND
 MODAL_AUTH_MISSING
 MODAL_AUTH_ERROR
+RECURSIVE_REQUIRED
 REMOTE_NOT_FOUND
+REMOTE_DEST_EXISTS
 REMOTE_TIMEOUT
 PATH_TOO_BROAD
 BYTE_LIMIT_EXCEEDED
 INVALID_BYTE_RANGE
+INVALID_LINE_RANGE
+UNSUPPORTED_OPERATION
+UNSUPPORTED_SEARCH_MODE
 MODAL_ERROR
 ```
 

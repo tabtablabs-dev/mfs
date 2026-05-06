@@ -6,18 +6,33 @@
 
 ## Current status
 
-v0.0.1 alpha implementation exists. The release slice is read-only and intentionally smaller than the full spec: `version`, `doctor`, root discovery, bounded `ls`, `stat`, and bounded `cat`. Do not claim sidecar index, search, manifests, or write primitives are implemented until they are shipped and tested.
+The package version is still `v0.0.1`, but the current worktree implements the MVP command surface from `docs/SPEC.md` beyond the original read-only alpha slice. It includes cwd navigation, bounded read/traversal commands, SQLite sidecar indexing/search, manifests/change detection, and guarded mutation commands. `mkdir` exists but fails closed because Modal's SDK does not expose an explicit mkdir primitive; create directory-like paths through `put`.
 
 ## Command surface
 
-Implemented v0.0.1 commands:
+Implemented commands:
 
 ```bash
 uv run mfs version --json
 uv run mfs doctor Volumes/modal/PROFILE/ENV --json
+uv run mfs cd Volumes/modal/PROFILE/ENV/VOLUME --json
+uv run mfs pwd --json
 uv run mfs ls Volumes/modal/PROFILE/ENV --limit 20 --json
+uv run mfs tree Volumes/modal/PROFILE/ENV/VOLUME --depth 4 --limit 100 --json
 uv run mfs stat Volumes/modal/PROFILE/ENV/VOLUME/path --json
 uv run mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path --bytes 0:4096 --json
+uv run mfs du Volumes/modal/PROFILE/ENV/VOLUME -s --json
+uv run mfs find Volumes/modal/PROFILE/ENV/VOLUME --glob "*.json" --json
+uv run mfs index Volumes/modal/PROFILE/ENV/VOLUME --store .mfs/index.sqlite --json
+uv run mfs grep Volumes/modal/PROFILE/ENV/VOLUME PATTERN --store .mfs/index.sqlite --json
+uv run mfs search Volumes/modal/PROFILE/ENV/VOLUME QUERY --lex --store .mfs/index.sqlite --json
+uv run mfs manifest Volumes/modal/PROFILE/ENV/VOLUME --jsonl
+uv run mfs changed Volumes/modal/PROFILE/ENV/VOLUME --since manifest.jsonl --json
+uv run mfs get Volumes/modal/PROFILE/ENV/VOLUME/path ./path --force --json
+uv run mfs put ./path Volumes/modal/PROFILE/ENV/VOLUME/path --force --json
+uv run mfs rm Volumes/modal/PROFILE/ENV/VOLUME/path --yes --json
+uv run mfs cp Volumes/modal/PROFILE/ENV/VOLUME/a Volumes/modal/PROFILE/ENV/VOLUME/b --force --json
+uv run mfs mv Volumes/modal/PROFILE/ENV/VOLUME/a Volumes/modal/PROFILE/ENV/VOLUME/b --yes --force --json
 ```
 
 Project checks:
@@ -38,6 +53,7 @@ docs/releases/     release notes
 src/mfs/           implementation
 tests/             pytest coverage
 ARCHITECTURE.md    boundaries and package layout
+docs/agents/       engineering-skill repo context
 ```
 
 ## Constraints
@@ -48,3 +64,17 @@ ARCHITECTURE.md    boundaries and package layout
 - Remote reads must be bounded by defaults: no surprise full-volume downloads.
 - Destructive commands require explicit confirmation flags.
 - Modal commit/reload consistency must be visible, not hidden.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The repo uses the default five-role triage vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo with root `CONTEXT.md` and optional root ADRs under `docs/adr/`. See `docs/agents/domain.md`.

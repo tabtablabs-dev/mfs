@@ -4,10 +4,12 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
-from mfs.cli import _parse_byte_range, main
+from mfs.cli import _parse_byte_range, _parse_line_range, main
 from mfs.errors import MfsError
-from mfs.modal_adapter import ModalAdapter, _normalize_modal_path
-from mfs.paths import parse_target
+from mfs.index import IndexStore
+from mfs.modal_adapter import FsEntry, ModalAdapter, _normalize_modal_path
+from mfs.paths import parse_target, resolve_target
+from mfs.state import save_cwd
 
 
 def invoke(*args: str):
@@ -64,7 +66,117 @@ def test_ls_providers_root_json_does_not_require_modal() -> None:
     assert payload["entries"] == [{"name": "modal", "type": "provider"}]
 
 
-def test_invalid_target_json_error() -> None:
+def test_ls_without_cwd_returns_stable_json_error(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MFS_STATE_PATH", str(tmp_path / "state.json"))
+
+    result = invoke("ls", "--json")
+
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "CWD_NOT_SET"
+
+
+def test_cd_without_target_resets_to_virtual_root(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("MFS_STATE_PATH", str(state_path))
+
+    result = invoke("cd", "--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["cwd"] == "Volumes/"
+    assert payload["state_path"] == str(state_path)
+
+
+def test_pwd_reports_state(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("MFS_STATE_PATH", str(state_path))
+    save_cwd("modal://tabtablabs/main/vol/a", state_path=state_path)
+
+    result = invoke("pwd", "--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["cwd"] == "modal://tabtablabs/main/vol/a"
+    assert payload["context"] == "modal/tabtablabs/main"
+
+
+def test_resolve_relative_target_against_modal_cwd(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    save_cwd("modal://tabtablabs/main/vol/a/b", state_path=state_path)
+
+    parsed = resolve_target("../cache", state_path=state_path)
+
+    assert parsed.canonical_uri == "modal://tabtablabs/main/vol/a/cache"
+
+
+def test_resolve_leading_slash_requires_volume_cwd(tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    save_cwd("Volumes/", state_path=state_path)
+
+    try:
+        resolve_target("/cache", state_path=state_path)
+    except MfsError as exc:
+        assert exc.code == "CWD_VOLUME_REQUIRED"
+    else:  # pragma: no cover
+        raise AssertionError("expected MfsError")
+
+
+def test_ls_filters_hidden_entries_by_default(monkeypatch) -> None:
+    async def fake_list_target(_parsed, *, recursive, limit, timeout):
+        return {
+            "target": {},
+            "uri": "Volumes/modal/tabtablabs/main/vol",
+            "recursive": recursive,
+            "limit": limit,
+            "count": 3,
+            "maybe_truncated": False,
+            "entries": [
+                {"name": ".secret", "path": "/.secret", "type": "file"},
+                {"name": "visible", "path": "/visible", "type": "file"},
+            ],
+        }
+
+    monkeypatch.setattr("mfs.cli._list_target", fake_list_target)
+
+    result = invoke("ls", "Volumes/modal/tabtablabs/main/vol", "--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["include_hidden"] is False
+    assert [entry["name"] for entry in payload["entries"]] == ["visible"]
+
+
+def test_ls_all_includes_hidden_entries(monkeypatch) -> None:
+    async def fake_list_target(_parsed, *, recursive, limit, timeout):
+        return {
+            "target": {},
+            "uri": "Volumes/modal/tabtablabs/main/vol",
+            "recursive": recursive,
+            "limit": limit,
+            "count": 2,
+            "maybe_truncated": False,
+            "entries": [
+                {"name": ".secret", "path": "/.secret", "type": "file"},
+                {"name": "visible", "path": "/visible", "type": "file"},
+            ],
+        }
+
+    monkeypatch.setattr("mfs.cli._list_target", fake_list_target)
+
+    result = invoke("ls", "Volumes/modal/tabtablabs/main/vol", "--all", "--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["include_hidden"] is True
+    assert [entry["name"] for entry in payload["entries"]] == [".secret", "visible"]
+
+
+def test_invalid_target_json_error(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("MFS_STATE_PATH", str(state_path))
+    save_cwd("Volumes/", state_path=state_path)
+
     result = invoke("ls", "not-a-target", "--json")
 
     assert result.exit_code == 2
@@ -89,10 +201,227 @@ def test_parse_byte_range_rejects_over_cap() -> None:
         raise AssertionError("expected MfsError")
 
 
+def test_parse_line_range() -> None:
+    assert _parse_line_range("1:10") == (1, 10)
+
+
+def test_parse_line_range_rejects_invalid_order() -> None:
+    try:
+        _parse_line_range("10:1")
+    except MfsError as exc:
+        assert exc.code == "INVALID_LINE_RANGE"
+    else:  # pragma: no cover
+        raise AssertionError("expected MfsError")
+
+
+def test_tree_applies_depth_budget(monkeypatch) -> None:
+    class FakeAdapter:
+        def __init__(self, *, timeout):
+            pass
+
+        async def list_files(self, _parsed, *, recursive, limit):
+            assert recursive is True
+            assert limit == 10
+            return [
+                FsEntry(path="/a.txt", name="a.txt", type="file", size=5),
+                FsEntry(path="/dir/b.txt", name="b.txt", type="file", size=7),
+                FsEntry(path="/dir/deep/c.txt", name="c.txt", type="file", size=11),
+            ]
+
+    monkeypatch.setattr("mfs.cli.ModalAdapter", FakeAdapter)
+
+    result = invoke(
+        "tree", "Volumes/modal/tabtablabs/main/vol", "--depth", "1", "--limit", "10", "--json"
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["partial"] is True
+    assert payload["limited_by"] == "depth"
+    assert [entry["path"] for entry in payload["entries"]] == ["/a.txt", "/dir/b.txt"]
+
+
+def test_du_sums_bounded_file_sizes(monkeypatch) -> None:
+    class FakeAdapter:
+        def __init__(self, *, timeout):
+            pass
+
+        async def list_files(self, _parsed, *, recursive, limit):
+            assert recursive is True
+            assert limit == 10
+            return [
+                FsEntry(path="/a.txt", name="a.txt", type="file", size=5),
+                FsEntry(path="/dir", name="dir", type="directory", size=0),
+                FsEntry(path="/dir/b.txt", name="b.txt", type="file", size=7),
+            ]
+
+    monkeypatch.setattr("mfs.cli.ModalAdapter", FakeAdapter)
+
+    result = invoke("du", "Volumes/modal/tabtablabs/main/vol", "--limit", "10", "--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["size_bytes"] == 12
+    assert payload["entry_count"] == 3
+    assert payload["source"] == "live"
+
+
+def test_find_filters_live_metadata_and_records_store(monkeypatch, tmp_path) -> None:
+    class FakeAdapter:
+        def __init__(self, *, timeout):
+            pass
+
+        async def list_files(self, _parsed, *, recursive, limit):
+            assert recursive is True
+            return [
+                FsEntry(path="/a.json", name="a.json", type="file", size=5),
+                FsEntry(path="/b.txt", name="b.txt", type="file", size=7),
+            ]
+
+    monkeypatch.setattr("mfs.cli.ModalAdapter", FakeAdapter)
+    store_path = tmp_path / "index.sqlite"
+
+    result = invoke(
+        "find",
+        "Volumes/modal/tabtablabs/main/vol",
+        "--glob",
+        "*.json",
+        "--store",
+        str(store_path),
+        "--json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["store_path"] == str(store_path)
+    assert [entry["path"] for entry in payload["entries"]] == ["/a.json"]
+
+
+def test_grep_uses_indexed_chunks(tmp_path) -> None:
+    store_path = tmp_path / "index.sqlite"
+    store = IndexStore(store_path)
+    volume_uri = "modal://tabtablabs/main/vol"
+    store.ensure_schema()
+    store.upsert_file(volume_uri, {"path": "/a.txt", "type": "file", "size": 11})
+    store.replace_chunks(volume_uri, "/a.txt", ["hello world\nbye world"])
+
+    result = invoke(
+        "grep",
+        "Volumes/modal/tabtablabs/main/vol",
+        "hello",
+        "--store",
+        str(store_path),
+        "--json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["store_path"] == str(store_path)
+    assert payload["matches"][0]["path"] == "/a.txt"
+    assert payload["matches"][0]["line"] == 1
+
+
+def test_search_lex_uses_fts(tmp_path) -> None:
+    store_path = tmp_path / "index.sqlite"
+    store = IndexStore(store_path)
+    volume_uri = "modal://tabtablabs/main/vol"
+    store.ensure_schema()
+    store.upsert_file(volume_uri, {"path": "/a.txt", "type": "file", "size": 11})
+    store.replace_chunks(volume_uri, "/a.txt", ["hello world"])
+
+    result = invoke(
+        "search",
+        "Volumes/modal/tabtablabs/main/vol",
+        "hello",
+        "--lex",
+        "--store",
+        str(store_path),
+        "--json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["results"][0]["path"] == "/a.txt"
+
+
+def test_manifest_jsonl_uses_live_metadata(monkeypatch) -> None:
+    class FakeAdapter:
+        def __init__(self, *, timeout):
+            pass
+
+        async def list_files(self, _parsed, *, recursive, limit):
+            assert recursive is True
+            return [FsEntry(path="/a.txt", name="a.txt", type="file", size=5)]
+
+    monkeypatch.setattr("mfs.cli.ModalAdapter", FakeAdapter)
+
+    result = invoke("manifest", "Volumes/modal/tabtablabs/main/vol", "--jsonl")
+
+    assert result.exit_code == 0
+    rows = [json.loads(line) for line in result.output.splitlines()]
+    assert rows[0]["path"] == "/a.txt"
+    assert rows[0]["volume_uri"] == "modal://tabtablabs/main/vol"
+
+
+def test_rm_requires_yes() -> None:
+    result = invoke("rm", "Volumes/modal/tabtablabs/main/vol/a.txt", "--json")
+
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "CONFIRMATION_REQUIRED"
+
+
+def test_put_directory_requires_recursive(tmp_path) -> None:
+    local_dir = tmp_path / "artifact"
+    local_dir.mkdir()
+
+    result = invoke("put", str(local_dir), "Volumes/modal/tabtablabs/main/vol/artifact", "--json")
+
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "RECURSIVE_REQUIRED"
+
+
+def test_cp_rejects_cross_volume() -> None:
+    result = invoke(
+        "cp",
+        "Volumes/modal/tabtablabs/main/vol-a/a.txt",
+        "Volumes/modal/tabtablabs/main/vol-b/a.txt",
+        "--json",
+    )
+
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "CROSS_VOLUME_UNSUPPORTED"
+
+
+def test_mkdir_fails_closed_until_modal_supports_it() -> None:
+    result = invoke("mkdir", "Volumes/modal/tabtablabs/main/vol/new-dir", "--json")
+
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "UNSUPPORTED_OPERATION"
+
+
 def test_normalize_modal_path_handles_relative_and_absolute_entries() -> None:
     assert _normalize_modal_path("campaign.json") == "/campaign.json"
     assert _normalize_modal_path("/campaign.json") == "/campaign.json"
     assert _normalize_modal_path("/") == "/"
+
+
+def test_entry_from_proto_normalizes_live_modal_paths() -> None:
+    class FakeFileEntryType:
+        def __call__(self, value):
+            return SimpleNamespace(name={1: "FILE"}.get(value, "UNKNOWN"))
+
+    adapter = ModalAdapter()
+    adapter._modal_bundle = {"FileEntryType": FakeFileEntryType()}
+    entry = adapter._entry_from_proto(
+        SimpleNamespace(path="campaign.json", type=1, size=83, mtime=1770831307)
+    )
+
+    assert entry.path == "/campaign.json"
+    assert entry.name == "campaign.json"
 
 
 def test_list_proto_entries_preserves_caller_uri_on_errors() -> None:

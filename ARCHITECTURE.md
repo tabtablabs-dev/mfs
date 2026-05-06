@@ -1,24 +1,27 @@
 # Architecture
 
-## Implemented v0.0.1 layers
+## Implemented layers
 
 ```text
 Click CLI
   -> output/error helpers
     -> target parser
+    -> persistent cwd state
     -> Modal adapter
+    -> SQLite sidecar index
 ```
 
-v0.0.1 is intentionally read-only and does not yet include the sidecar index or content cache layers.
+The package version remains `v0.0.1`, but the current worktree implements the MVP command surface from `docs/SPEC.md`.
 
 ## Boundaries
 
 - CLI layer parses args and formats human/JSON output only.
 - Target parser owns `Volumes/modal/PROFILE/ENV/VOLUME/path` and `modal://PROFILE/ENV/VOLUME/path` grammar.
+- State layer owns `~/.mfs/state.json`, cwd resolution, context keys, and `cd`/`pwd` payloads.
 - Output layer owns stable JSON and JSON error serialization.
 - Modal adapter owns Modal SDK calls, explicit per-profile credential resolution, private `_Client` lifecycle, and version-gated private/proto fallbacks for bounded byte-range reads and `max_entries` listing.
-- Future sidecar index adapter owns SQLite schema/migrations/query planning, including FTS5 lexical search.
-- Future content cache adapter owns bounded downloaded bytes/text, chunking, safety skips, eviction, freshness metadata, and selected store/cache path resolution.
+- Sidecar index adapter owns SQLite schema/query planning, FTS5 lexical search, metadata rows, text chunks, and selected store path resolution.
+- Content caching is represented by bounded text chunks in the sidecar store; binary/secret/too-large files are skipped rather than blindly indexed as text.
 
 ## Dependency direction
 
@@ -34,16 +37,8 @@ src/mfs/
   modal_adapter.py   Modal SDK/private-proto adapter
   output.py          JSON/human output helpers
   paths.py           target parsing and canonicalization
-```
-
-Planned later:
-
-```text
-src/mfs/
-  index.py           SQLite metadata + FTS5
-  cache.py           bounded content cache
-  manifest.py        JSONL manifest generation/comparison
-  commands/          larger command handlers when CLI grows
+  state.py           persistent virtual cwd state
+  index.py           SQLite metadata + FTS5 sidecar store
 ```
 
 ## Modal adapter stance
@@ -57,3 +52,14 @@ src/mfs/
 - `VolumeGetFile2(start,len)` for bounded `cat`
 
 If those private/proto capabilities are unavailable, commands that depend on bounded semantics must fail closed instead of falling back to unbounded reads/listings.
+
+## Mutation stance
+
+Guarded write commands are exposed through the Modal adapter:
+
+- `put` uses `Volume.batch_upload()`.
+- `get` reads explicit files and explicit recursive directory entries.
+- `rm` uses `Volume.remove_file()` after `--yes`.
+- `cp` uses `Volume.copy_files()` only within the same profile/environment/volume.
+- `mv` is copy-then-remove and requires `--yes`.
+- `mkdir` fails closed with `UNSUPPORTED_OPERATION` because Modal's SDK does not expose an explicit mkdir primitive.
