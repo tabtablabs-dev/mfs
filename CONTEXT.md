@@ -8,23 +8,23 @@ Durable remote filesystem-like storage managed by Modal. `mfs` treats it as the 
 
 ### Volume URI
 
-Canonical address for a Modal Volume path.
+Canonical machine address for a Modal Volume path.
 
 ```text
-modal://ENV/VOLUME/path
+modal://PROFILE/ENV/VOLUME/path
 ```
 
-Decision: `mfs` exposes remote-filesystem path syntax (`Volumes/modal/ENV/VOLUME/path`) as the primary user-facing address, while accepting explicit URI syntax (`modal://ENV/VOLUME/path`) as canonical machine syntax.
+Decision: `mfs` exposes remote-filesystem path syntax (`Volumes/modal/PROFILE/ENV/VOLUME/path`) as the primary user-facing address, while accepting explicit URI syntax (`modal://PROFILE/ENV/VOLUME/path`) as canonical machine syntax.
 
 ### Remote Filesystem Path
 
 Filesystem-like address that treats Modal Volumes as mounted remote roots without actually mounting them.
 
 ```text
-Volumes/modal/ENV/VOLUME/path
+Volumes/modal/PROFILE/ENV/VOLUME/path
 ```
 
-The environment segment is required in MVP to avoid hidden Modal default environment state.
+The profile and environment segments are required in MVP to avoid hidden Modal default auth/profile/environment state.
 
 ### Sidecar Index
 
@@ -55,7 +55,7 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - JSON output is first-class.
 - Volumes are treated as write-once/read-many optimized storage; mutation flows must make concurrency semantics explicit.
 - MVP includes thin write primitives (`put`, `get`, `rm`, `cp`) with guardrails; it does not include a mutation queue.
-- Remote filesystem paths require an explicit environment segment: `Volumes/modal/ENV/VOLUME/path`.
+- Remote filesystem paths require explicit profile and environment segments: `Volumes/modal/PROFILE/ENV/VOLUME/path`.
 
 ## Modal Volume concurrency facts
 

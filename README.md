@@ -15,14 +15,14 @@ Modal Volumes are generous and useful as durable remote storage, but their CLI i
 ## Intended shape
 
 ```text
-mfs ls modal://ENV/VOLUME/path --json
-mfs tree modal://ENV/VOLUME/path --depth 3 --limit 500
-mfs stat modal://ENV/VOLUME/path --json
-mfs cat modal://ENV/VOLUME/path --range 1:200
-mfs find modal://ENV/VOLUME --glob '**/*.py'
-mfs grep modal://ENV/VOLUME 'pattern' --glob '**/*.{md,py,txt}'
-mfs index modal://ENV/VOLUME --store .mfs/index.sqlite
-mfs search modal://ENV/VOLUME 'natural language query'
+mfs ls Volumes/modal/PROFILE/ENV/VOLUME/path --json
+mfs tree Volumes/modal/PROFILE/ENV/VOLUME/path --depth 3 --limit 500
+mfs stat Volumes/modal/PROFILE/ENV/VOLUME/path --json
+mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path --range 1:200
+mfs find Volumes/modal/PROFILE/ENV/VOLUME --glob '**/*.py'
+mfs grep Volumes/modal/PROFILE/ENV/VOLUME 'pattern' --glob '**/*.{md,py,txt}'
+mfs index Volumes/modal/PROFILE/ENV/VOLUME --store .mfs/index.sqlite
+mfs search Volumes/modal/PROFILE/ENV/VOLUME 'natural language query'
 ```
 
 See `docs/SPEC.md` and `CONTEXT.md`.

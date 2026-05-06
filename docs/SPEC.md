@@ -34,31 +34,31 @@ Build a Modal Volume query CLI for agents: a filesystem-shaped command surface p
 ## Proposed URI
 
 ```text
-modal://ENV/VOLUME/path/to/file
+modal://PROFILE/ENV/VOLUME/path/to/file
 ```
 
 Examples:
 
 ```text
-modal://main/models/qwen/model.safetensors
-modal://dev/agent-workspaces/run-123/trace.jsonl
+modal://default/main/models/qwen/model.safetensors
+modal://default/dev/agent-workspaces/run-123/trace.jsonl
 ```
 
-Decision: `ENV` is required in MVP and must not silently default from Modal profile state.
+Decision: `PROFILE` and `ENV` are required in MVP and must not silently default from Modal profile or environment state.
 
 ## Alternative remote-filesystem address
 
 Instead of forcing URI syntax into every command, `mfs` can treat Modal Volumes like roots on a remote server:
 
 ```text
-Volumes/modal/ENV/VOLUME/path/to/file
+Volumes/modal/PROFILE/ENV/VOLUME/path/to/file
 ```
 
 Examples:
 
 ```text
-Volumes/modal/main/models/qwen/model.safetensors
-Volumes/modal/dev/agent-workspaces/run-123/trace.jsonl
+Volumes/modal/default/main/models/qwen/model.safetensors
+Volumes/modal/default/dev/agent-workspaces/run-123/trace.jsonl
 ```
 
 Pros:
@@ -80,21 +80,21 @@ Cons:
 - Needs careful parsing so users do not expect it to exist on disk.
 - Shell completion and error messages must explain that `Volumes/...` is a virtual path handled by `mfs`.
 
-Resolution: use remote-filesystem paths as the primary CLI UX and keep `modal://ENV/VOLUME/path` as a canonical machine URI accepted everywhere. The environment segment is required in both forms for MVP.
+Resolution: use remote-filesystem paths as the primary CLI UX and keep `modal://PROFILE/ENV/VOLUME/path` as a canonical machine URI accepted everywhere. The profile and environment segments are required in both forms for MVP.
 
 Primary examples:
 
 ```text
-mfs ls Volumes/modal/main/models/
-mfs cat Volumes/modal/main/models/config.json --range 1:120
-mfs put ./artifact.bin Volumes/modal/main/artifacts/artifact.bin
+mfs ls Volumes/modal/default/main/models/
+mfs cat Volumes/modal/default/main/models/config.json --range 1:120
+mfs put ./artifact.bin Volumes/modal/default/main/artifacts/artifact.bin
 ```
 
 Machine/canonical examples:
 
 ```text
-mfs ls modal://main/models/
-mfs cat modal://main/models/config.json --range 1:120
+mfs ls modal://default/main/models/
+mfs cat modal://default/main/models/config.json --range 1:120
 ```
 
 ## MVP commands
@@ -231,7 +231,7 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 
 ## Open decisions for grilling
 
-1. Whether Modal profile/workspace selection is needed in MVP, or environment + active Modal auth is enough.
+1. Exact Modal profile plumbing: whether Modal SDK/CLI exposes profile selection directly or `mfs` must shell with `MODAL_PROFILE`/config state.
 2. MVP implementation language/package: Python + Click + Modal SDK vs shelling out to `modal volume`.
 3. Whether metadata-only index is MVP, or FTS grep/search must be MVP.
 4. Cache location and invalidation rules.
