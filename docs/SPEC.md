@@ -134,7 +134,7 @@ mfs doctor URI [--json]
 ## Later commands
 
 ```text
-mfs search URI QUERY [--lex|--semantic|--hybrid]
+mfs search URI QUERY [--semantic|--hybrid]
 mfs sql SQL [--store PATH]
 mfs diff URI_A URI_B
 mfs mv SRC_URI DST_URI --yes
@@ -158,6 +158,10 @@ Every command that returns structured data must support JSON. Errors should incl
 ```
 
 ## Sidecar SQLite model
+
+Decision: MVP index includes metadata, bounded text content cache, and SQLite FTS5 lexical search. Semantic/vector search is post-MVP.
+
+This means `grep` and `search --lex` are MVP features, backed by cached text chunks. Indexing must skip or mark files that are too large, binary, likely secret-bearing, or otherwise unsafe to decode as text.
 
 ```sql
 create table files (
@@ -189,7 +193,19 @@ create table chunks (
 );
 ```
 
-FTS5 virtual table can index `chunks.text` after MVP metadata is stable.
+FTS5 virtual table indexes `chunks.text` in MVP:
+
+```sql
+create virtual table chunks_fts using fts5(
+  text,
+  volume_uri unindexed,
+  path unindexed,
+  chunk_id unindexed,
+  tokenize = 'unicode61'
+);
+```
+
+The FTS table may be rebuilt from `chunks`; `chunks` remains the source table for line/byte ranges and cache metadata.
 
 ## Safety defaults
 
@@ -246,11 +262,9 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 ## Open decisions for grilling
 
 1. Exact SDK profile plumbing and minimum supported Modal SDK version.
-2. Whether metadata-only index is MVP, or FTS grep/search must be MVP.
-3. Cache location and invalidation rules.
-4. Default max file size for content indexing.
-5. Whether `mfs search` means lexical search first or vector/hybrid search.
-6. MCP server in MVP or after CLI stabilizes.
-7. Whether to design for local-only index or index stored inside Modal Volume.
-8. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
-9. Whether to support multiple Modal profiles/workspaces.
+2. Cache location and invalidation rules.
+3. Default max file size for content indexing.
+4. MCP server in MVP or after CLI stabilizes.
+5. Whether to design for local-only index or index stored inside Modal Volume.
+6. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
+7. Whether to support multiple Modal profiles/workspaces.

@@ -16,8 +16,8 @@ CLI commands
 - CLI layer parses args and formats human/JSON output only.
 - Domain services own safety policy, URI parsing, caps, and freshness semantics.
 - Modal adapter owns Modal Python SDK calls and profile/environment resolution; CLI subprocess fallback is debug-only.
-- Sidecar index adapter owns SQLite schema/migrations/query planning.
-- Content cache adapter owns downloaded bytes/text and eviction.
+- Sidecar index adapter owns SQLite schema/migrations/query planning, including FTS5 lexical search.
+- Content cache adapter owns bounded downloaded bytes/text, chunking, safety skips, and eviction.
 
 ## Dependency direction
 

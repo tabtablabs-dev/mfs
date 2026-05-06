@@ -57,6 +57,7 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - MVP includes thin write primitives (`put`, `get`, `rm`, `cp`) with guardrails; it does not include a mutation queue.
 - Remote filesystem paths require explicit profile and environment segments: `Volumes/modal/PROFILE/ENV/VOLUME/path`.
 - Modal adapter is SDK-first, not a wrapper around the `modal volume` CLI.
+- MVP index includes metadata, bounded text content cache, and SQLite FTS5 lexical search; semantic/vector search is post-MVP.
 
 ## Modal Volume concurrency facts
 
@@ -70,4 +71,3 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 
 ## Open language questions
 
-- Is `search` lexical-only for MVP, or does MVP include semantic/vector search?
