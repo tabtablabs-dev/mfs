@@ -38,13 +38,25 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 
 ## Resolved decisions
 
+- Canonical product frame: `mfs` is a **Modal Volume query CLI for agents**. It exists because Modal's native CLI is awkward for normal filesystem-style workflows and not shaped for repeated bounded agent queries.
 - `mfs` is Modal-specific first; backend abstraction can wait.
 - Sidecar index is required for useful agent coverage.
 - POSIX mount is not MVP.
 - JSON output is first-class.
+- Volumes are treated as write-once/read-many optimized storage; mutation flows must make concurrency semantics explicit.
+
+## Modal Volume concurrency facts
+
+- Modal supports concurrent modification from multiple containers, but concurrent modification of the same file should be avoided.
+- Same-file concurrent writes are last-write-wins; data absent from the final committer can be lost.
+- Distributed file locking is not supported.
+- Volumes v1 guidance: avoid more than 5 concurrent commits for small changes; commits can contend.
+- Volumes v2 improves distinct-file concurrent writing: hundreds of containers can write to distinct files without expected performance degradation.
+- Volumes v2 still has unacceptable same-file last-write-wins semantics for most applications, so a particular file should only have one writer at a time.
+- Volumes v2 can commit via `sync /path/to/mountpoint` inside a Sandbox or Modal shell.
 
 ## Open language questions
 
-- Is this a "filesystem query CLI", "remote volume indexer", or "agent filesystem adapter"?
 - Should remote identity be `modal://ENV/VOLUME/path`, `modal://PROFILE/ENV/VOLUME/path`, or flags plus path?
 - Is `search` lexical-only for MVP, or does MVP include semantic/vector search?
+- Do writes need an optional serialized mutation queue for same-path or same-prefix operations?

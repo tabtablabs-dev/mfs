@@ -11,3 +11,15 @@
 - Machine-readable errors for agent branching.
 - Retry only on clearly retryable remote failures.
 - Never continue after partial destructive failures without reporting exact affected paths.
+
+## Concurrent mutation stance
+
+Modal Volumes v2 make distinct-file concurrent writes much safer and more scalable than v1, but they do not remove same-file last-write-wins semantics. `mfs` should therefore treat write coordination as a product decision, not an implicit guarantee.
+
+Default reliability policy:
+
+- Reads and metadata queries may run concurrently.
+- Writes to different target paths may run concurrently.
+- Overwrite/delete/rename operations require explicit flags.
+- If `mfs` later adds a mutation queue, call it a cooperative queue, not a lock manager.
+- For same-path writes, prefer compare-before-write using known hashes/manifests when available.

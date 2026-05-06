@@ -2,7 +2,9 @@
 
 ## Goal
 
-Build a CLI that lets agents query and safely manipulate Modal Volumes as if they were inspecting a normal filesystem, while respecting Modal’s remote, snapshot/commit/reload semantics.
+Build a Modal Volume query CLI for agents: a filesystem-shaped command surface plus a local SQLite sidecar index that lets agents cheaply inspect, find, grep, manifest, and safely manipulate Modal Volumes while respecting Modal's remote, snapshot/commit/reload semantics.
+
+`mfs` exists because Modal's native CLI is resource-oriented and awkward compared with a typical filesystem workflow. The design target is not POSIX compatibility; it is safe, bounded, machine-readable filesystem querying.
 
 ## Non-goals for MVP
 
@@ -139,6 +141,41 @@ FTS5 virtual table can index `chunks.text` after MVP metadata is stable.
 - Remote state can involve commit/reload visibility semantics inside Modal functions.
 - CLI operations are explicit remote operations.
 - Large file counts and inode limits affect crawl/index strategy.
+- Volumes are optimized for write-once/read-many workloads.
+- Volumes v1 guidance: best below 50,000 files/directories; hard 500,000 inode limit; avoid more than 5 concurrent commits for small changes.
+- Volumes v2 is beta, more scalable, has no total file-count limit, supports at most 262,144 files in a single directory, and limits each file to less than 1 TiB.
+- Volumes v2 supports distinct-file concurrent writes from hundreds of containers without expected performance degradation.
+- Same-file concurrent writes still have last-write-wins semantics in many circumstances; distributed file locking is not supported.
+- Volumes v2 can be committed from shell/Sandbox via `sync /path/to/mountpoint`.
+
+## Mutation/concurrency model
+
+MVP should not pretend to provide locking Modal does not provide.
+
+Recommended stance:
+
+1. Read/query commands are fully parallel-safe.
+2. Distinct-path writes are allowed, but output must include operation metadata and warnings when freshness is uncertain.
+3. Same-path overwrite/delete/rename is guarded by explicit flags.
+4. Optional serialized mutation queue is a post-MVP feature unless we choose to make `mfs` a write coordinator, not just a CLI.
+
+Candidate queue design if needed:
+
+```text
+mfs mutate enqueue --op put --src ./file --dst modal://env/vol/path
+mfs mutate run --queue modal://env/vol/.mfs/mutations
+mfs mutate status
+```
+
+Queue semantics:
+
+- Serialize writes per target path, or optionally per path prefix.
+- Use append-only intent records: operation, target path, source hash, expected prior hash/version if known, created_at, actor.
+- Apply with compare-before-write where possible: refuse overwrite when known prior hash changed.
+- Write audit records to sidecar index and optionally `.mfs/mutations/log.jsonl` in the Volume.
+- Do not claim distributed locking; call it a cooperative mutation queue.
+
+Open question: is cooperative queuing core to `mfs`, or should MVP only warn and provide primitives?
 
 ## Open decisions for grilling
 
@@ -152,3 +189,4 @@ FTS5 virtual table can index `chunks.text` after MVP metadata is stable.
 8. Whether to design for local-only index or index stored inside Modal Volume.
 9. How much write coverage MVP should expose.
 10. Whether to support multiple Modal profiles/workspaces.
+11. Whether same-path writes need a cooperative mutation queue in MVP.
