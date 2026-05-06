@@ -56,6 +56,7 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - Volumes are treated as write-once/read-many optimized storage; mutation flows must make concurrency semantics explicit.
 - MVP includes thin write primitives (`put`, `get`, `rm`, `cp`) with guardrails; it does not include a mutation queue.
 - Remote filesystem paths require explicit profile and environment segments: `Volumes/modal/PROFILE/ENV/VOLUME/path`.
+- Modal adapter is SDK-first, not a wrapper around the `modal volume` CLI.
 
 ## Modal Volume concurrency facts
 

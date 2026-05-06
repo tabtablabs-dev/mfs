@@ -31,6 +31,20 @@ Build a Modal Volume query CLI for agents: a filesystem-shaped command surface p
 7. Delete/copy/move with guardrails.
 8. Expose all above as JSON for agent tools/MCP.
 
+## Modal adapter decision
+
+Decision: `mfs` is SDK-first. It should use the Modal Python SDK for core operations rather than shelling out to `modal volume`.
+
+Rationale:
+
+- `mfs` is a Python Click CLI; the Modal SDK is the real API boundary.
+- Wrapping `modal volume` would preserve the awkwardness and add subprocess/parsing fragility.
+- SDK methods map well to core operations: volume lookup, listing, file reads, batched uploads, removal, and volume-internal copies.
+- SDK-first makes structured JSON/error handling easier.
+- CLI subprocess fallback should be limited to `doctor`/debug parity or SDK gaps.
+
+Open adapter detail: exact profile plumbing must be verified. If the SDK cannot select Modal profiles directly, `mfs` should isolate profile selection in the Modal adapter rather than leaking it through command handlers.
+
 ## Proposed URI
 
 ```text
@@ -231,13 +245,12 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 
 ## Open decisions for grilling
 
-1. Exact Modal profile plumbing: whether Modal SDK/CLI exposes profile selection directly or `mfs` must shell with `MODAL_PROFILE`/config state.
-2. MVP implementation language/package: Python + Click + Modal SDK vs shelling out to `modal volume`.
-3. Whether metadata-only index is MVP, or FTS grep/search must be MVP.
-4. Cache location and invalidation rules.
-5. Default max file size for content indexing.
-6. Whether `mfs search` means lexical search first or vector/hybrid search.
-7. MCP server in MVP or after CLI stabilizes.
-8. Whether to design for local-only index or index stored inside Modal Volume.
-9. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
-10. Whether to support multiple Modal profiles/workspaces.
+1. Exact SDK profile plumbing and minimum supported Modal SDK version.
+2. Whether metadata-only index is MVP, or FTS grep/search must be MVP.
+3. Cache location and invalidation rules.
+4. Default max file size for content indexing.
+5. Whether `mfs search` means lexical search first or vector/hybrid search.
+6. MCP server in MVP or after CLI stabilizes.
+7. Whether to design for local-only index or index stored inside Modal Volume.
+8. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
+9. Whether to support multiple Modal profiles/workspaces.
