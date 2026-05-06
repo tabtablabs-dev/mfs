@@ -6,6 +6,173 @@ Build a Modal Volume query CLI for agents: a filesystem-shaped command surface p
 
 `mfs` exists because Modal's native CLI is resource-oriented and awkward compared with a typical filesystem workflow. The design target is not POSIX compatibility; it is safe, bounded, machine-readable filesystem querying.
 
+## Command parity stance
+
+Decision: `mfs` targets **remote-agent command parity**, not POSIX parity.
+
+`mfs` should use familiar filesystem verbs when they help transfer shell intuition, but the contract is remote-safe agent operation:
+
+- explicit Modal profile/environment/volume addressing
+- bounded defaults for list/read/recursive operations
+- JSON output and stable JSON errors for agent branching
+- no surprise full-volume crawls or downloads
+- no hidden destructive mutation
+- honest Modal consistency/concurrency warnings
+
+This means `ls`, `cd`, `cp`, `mv`, `rm`, `mkdir`, and `du` can exist, but they do not imply local mounts, Unix permissions/owners, process-global shell cwd, atomic rename, distributed locks, or unbounded recursive traversal.
+
+`mfs cd` is in scope. It updates persistent `mfs` virtual cwd state under `~/.mfs/`; it does not and cannot change the parent shell process directory.
+
+## Current directory state
+
+Decision: `mfs cd` stores state in `~/.mfs/state.json` using a per-provider/profile/environment map, not a single blind global cwd and not named sessions yet.
+
+Minimal state shape:
+
+```json
+{
+  "version": 1,
+  "default_cwd": "modal://tabtablabs/main/zillow-quadtree-v2",
+  "cwd_by_context": {
+    "modal/tabtablabs/main": "modal://tabtablabs/main/zillow-quadtree-v2"
+  },
+  "updated_at": "2026-05-06T00:00:00Z"
+}
+```
+
+Rules:
+
+- `mfs cd TARGET` resolves `TARGET` to a canonical remote URI, verifies it is a directory-like target, then updates `default_cwd` and the matching `cwd_by_context` entry.
+- `mfs cd` with no target resets `default_cwd` to the virtual root `Volumes/`.
+- `mfs cd ..` resolves against the active `default_cwd`.
+- Commands that omit `TARGET` use `default_cwd`.
+- `mfs ls` with no target uses `default_cwd`; if no cwd is set, it returns `CWD_NOT_SET` instead of falling back to root discovery.
+- Commands that receive relative remote paths resolve them against `default_cwd`.
+- Context keys are stable strings like `modal/PROFILE/ENV`.
+- `mfs pwd` is first-class and reports the active `default_cwd`, the resolved context key, and the state file path.
+- Named sessions and per-project cwd state are post-MVP unless a real workflow proves they are needed.
+
+```text
+mfs pwd [--json]
+```
+
+After `mfs cd`, a subsequent `mfs ls` lists root discovery entries from `Volumes/`. This is not recursive traversal of every directory in every Volume; broad tree walks remain bounded through `tree`, `du`, index/update, or explicit recursive budgets.
+
+Example JSON:
+
+```json
+{
+  "cwd": "modal://tabtablabs/main/zillow-quadtree-v2",
+  "context": "modal/tabtablabs/main",
+  "state_path": "~/.mfs/state.json"
+}
+```
+
+## Relative path resolution
+
+Decision: command targets resolve shell-like against the current virtual cwd.
+
+Given:
+
+```text
+cwd = modal://tabtablabs/main/zillow-quadtree-v2/a/b
+```
+
+Resolution examples:
+
+```text
+mfs ls cache     -> modal://tabtablabs/main/zillow-quadtree-v2/a/b/cache
+mfs cd ..        -> modal://tabtablabs/main/zillow-quadtree-v2/a
+mfs cd /cache    -> modal://tabtablabs/main/zillow-quadtree-v2/cache
+mfs cd /         -> modal://tabtablabs/main/zillow-quadtree-v2
+mfs cd Volumes/  -> Volumes/
+mfs cd           -> Volumes/
+```
+
+Rules:
+
+- `foo/bar` resolves relative to `default_cwd`.
+- `..` and `.` are normalized within the virtual path.
+- Leading `/foo` means from the current Modal Volume root, not local filesystem root and not the `Volumes/` virtual root.
+- `Volumes/` is the explicit virtual root syntax.
+- `modal://PROFILE/ENV/VOLUME/path` and `Volumes/modal/PROFILE/ENV/VOLUME/path` remain absolute remote targets.
+- Leading `/foo` requires the current cwd to be inside a specific Modal Volume. If cwd is `Volumes/`, `Volumes/modal`, `Volumes/modal/PROFILE`, or `Volumes/modal/PROFILE/ENV`, return `CWD_VOLUME_REQUIRED` instead of guessing a volume.
+
+## `ls` hidden-file behavior
+
+Decision: `mfs ls` follows shell-like dotfile behavior.
+
+- By default, `mfs ls` hides entries whose basename starts with `.`.
+- `mfs ls -a` and `mfs ls --all` include dotfiles.
+- Filtering applies after Modal returns entries and before output/truncation metadata is finalized.
+- JSON output includes `include_hidden` so agents can branch deterministically.
+
+Example JSON field:
+
+```json
+{
+  "include_hidden": false
+}
+```
+
+## `ls -l` long-format behavior
+
+Decision: `mfs ls -l` is an honest Modal metadata long format, not a fake POSIX long listing.
+
+Modal listing metadata supports practical remote fields such as:
+
+```text
+type  size  mtime  path/name
+```
+
+`mfs ls -l` must not invent Unix owner, group, permission, hard-link count, inode, or device fields. If future adapters expose provider-specific metadata, JSON may include it under explicit provider metadata keys rather than rendering it as POSIX truth.
+
+Human example:
+
+```text
+file       83  2026-02-12T10:55:07Z  campaign.json
+directory   0  2026-02-11T17:20:38Z  cache
+```
+
+JSON should include the same entry fields already used by normal `ls`, plus `long_format: true` at the response level.
+
+## `du` budget behavior
+
+Decision: `mfs du` is read-only and may use conservative default traversal budgets, but it must be honest when the result is partial.
+
+`du` command shape:
+
+```text
+mfs du TARGET [-s] [-h] [--depth N] [--limit N] [--json]
+```
+
+Semantics:
+
+- `du -s TARGET` summarizes the target within the active traversal budget.
+- `du -sh TARGET` adds human-readable size formatting.
+- Default live traversal budget is depth 8 and 10,000 entries.
+- `--depth N` and `--limit N` override the defaults.
+- `du` is never an unbounded full-volume crawl by default.
+- When traversal hits depth, entry, API, or path-breadth limits, JSON must report `partial: true` and include the limiting factor.
+- Human output should visibly mark partial summaries instead of looking authoritative.
+- If a sidecar index exists and is selected later, `du` may answer from index rows, but JSON must identify whether the answer is `live`, `indexed`, or mixed.
+
+Example JSON shape:
+
+```json
+{
+  "uri": "modal://tabtablabs/main/vol/path",
+  "size_bytes": 123456,
+  "human_size": "121 KiB",
+  "partial": true,
+  "entry_count": 10000,
+  "limit": 10000,
+  "depth": 8,
+  "limited_by": "entry_limit",
+  "source": "live"
+}
+```
+
 ## Non-goals for MVP
 
 - POSIX/FUSE/NFS mount.
@@ -137,7 +304,9 @@ Deferred from v0.0.1: sidecar index, lexical search, manifests/change detection,
 ## MVP commands
 
 ```text
-mfs ls URI [--json]
+mfs ls [URI] [-a] [-l] [--limit N] [--recursive] [--json]
+mfs cd [URI|..] [--json]  # no target resets to Volumes/
+mfs pwd [--json]
 mfs tree URI [--depth N] [--limit N] [--json]
 mfs stat URI [--json]
 mfs cat URI [--bytes START:LEN] [--lines START:END] [--max-bytes N] [--refresh]
@@ -145,6 +314,9 @@ mfs get URI LOCAL_DEST [--recursive] [--force]
 mfs put LOCAL_PATH URI [--recursive] [--force]
 mfs rm URI [--recursive] --yes
 mfs cp SRC_URI DST_URI [--recursive] [--force]  # MVP: same profile/env/volume only
+mfs mv SRC_URI DST_URI [--force] [--yes]
+mfs mkdir URI [--parents] [--json]
+mfs du URI [-s] [-h] [--depth N] [--limit N] [--json]
 mfs find URI --glob GLOB [--size EXPR] [--mtime EXPR] [--json]
 mfs grep URI PATTERN [--glob GLOB] [--context N] [--json]
 mfs search URI QUERY [--lex] [--json]
@@ -185,6 +357,30 @@ Every command that returns structured data must support JSON. Errors should incl
     "code": "REMOTE_NOT_FOUND",
     "message": "Path not found",
     "uri": "modal://default/main/vol/path",
+    "retryable": false
+  }
+}
+```
+
+Current-directory errors use a stable `CWD_NOT_SET` code. Example:
+
+```json
+{
+  "error": {
+    "code": "CWD_NOT_SET",
+    "message": "No mfs current directory is set; run mfs cd TARGET or pass TARGET explicitly",
+    "retryable": false
+  }
+}
+```
+
+Leading-slash in-volume paths require cwd inside a concrete Modal Volume. If cwd is only a discovery/root context, return `CWD_VOLUME_REQUIRED`:
+
+```json
+{
+  "error": {
+    "code": "CWD_VOLUME_REQUIRED",
+    "message": "Absolute-in-volume path '/cache' requires cwd inside a Modal Volume; use Volumes/... or cd into a volume first",
     "retryable": false
   }
 }
@@ -328,6 +524,19 @@ Correctness language:
 - JSON errors must be stable enough for agents to branch on.
 - Secrets and binary blobs should not be blindly indexed as text.
 
+Mutation guardrail decision: mutation commands are real commands, not plan-only by default, but destructive and overwrite behavior requires explicit non-interactive confirmation flags.
+
+Baseline guardrails:
+
+- `rm TARGET` fails unless `--yes` is passed.
+- `rm -r TARGET` / `rm --recursive TARGET` fails unless both recursion and `--yes` are explicit.
+- `cp SRC DST` may create a missing destination, but must not overwrite an existing remote path unless `--force` is passed.
+- `mv SRC DST` may rename/move into a missing destination, but must not overwrite an existing remote path unless `--force` is passed; same-path or same-prefix collisions must fail clearly.
+- `put LOCAL DST` must not overwrite an existing remote path unless `--force` is passed.
+- `mkdir TARGET` creates a directory-like target when Modal supports it; parent creation requires `--parents`.
+- `-i` / `--interactive` may exist for human CLI parity, but it is not the agent contract. Agents should use explicit `--yes`, `--force`, `--dry-run`, and JSON output instead of prompt-dependent flows.
+- Destructive and overwrite JSON responses include operation metadata: `operation`, `source_uri` when applicable, `target_uri`, `recursive`, `overwrote`, and `confirmed_by_flag`.
+
 ## Modal-specific constraints to preserve
 
 - Modal Volumes are not a normal live filesystem.
@@ -350,7 +559,7 @@ Resolved MVP stance:
 1. Read/query commands are fully parallel-safe.
 2. Distinct-path writes are allowed, but output must include operation metadata and warnings when freshness is uncertain.
 3. Same-path overwrite/delete/rename is guarded by explicit flags.
-4. MVP includes thin write primitives: `get`, `put`, `rm`, and `cp`.
+4. MVP includes thin write primitives: `get`, `put`, `rm`, `cp`, `mv`, and `mkdir` once their guardrails are implemented and tested.
 5. MVP does not include a serialized mutation queue; queueing remains a post-MVP option.
 
 Candidate queue design if needed:
@@ -370,6 +579,19 @@ Queue semantics:
 - Do not claim distributed locking; call it a cooperative mutation queue.
 
 Decision: cooperative queuing is not core to MVP. MVP should warn, expose primitives, and record mutation metadata locally.
+
+## Implementation order
+
+Decision: implement navigation/read parity before mutations.
+
+Order:
+
+1. `cd`, `pwd`, omitted-target cwd resolution, `ls -a`, and `ls -l`.
+2. Read-only `du` after recursive budget semantics are settled.
+3. `tree` and metadata/index/search flows.
+4. Guarded mutation commands: `get`, `put`, `rm`, `cp`, `mv`, and `mkdir`.
+
+Rationale: cwd/path resolution is shared infrastructure for almost every later command. It should be stable, tested, and JSON-observable before remote mutation commands depend on it.
 
 ## Open decisions for grilling
 

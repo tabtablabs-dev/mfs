@@ -18,15 +18,26 @@ Released slice:
 
 ## Next: v0.0.2 / v0.1.0 candidates
 
-1. Add `tree` as bounded repeated `ls` with depth/entry budgets.
-2. Add sidecar SQLite metadata schema and `index/update` for metadata only.
-3. Add bounded text cache and FTS5-backed `grep` / `search --lex`.
-4. Add `manifest` and `changed` from index rows.
-5. Add guarded write primitives only after read/index behavior is stable:
+Decision: implement navigation/read parity before mutations. Cwd/path resolution becomes a shared dependency for `ls`, `du`, `cp`, `mv`, `rm`, `mkdir`, `find`, and later MCP tools, so make it boring first.
+
+1. Navigation/read parity slice:
+   - `cd` with persistent `~/.mfs/state.json` state
+   - `pwd`
+   - omitted-target resolution from cwd
+   - `ls -a` / `--all`
+   - `ls -l` honest Modal metadata long format
+2. Add read-only `du` with default budget depth 8 / limit 10,000 entries, `partial` metadata, and explicit `--depth` / `--limit` overrides.
+3. Add `tree` as bounded repeated `ls` with depth/entry budgets.
+4. Add sidecar SQLite metadata schema and `index/update` for metadata only.
+5. Add bounded text cache and FTS5-backed `grep` / `search --lex`.
+6. Add `manifest` and `changed` from index rows.
+7. Add guarded mutation primitives only after cwd/path/read behavior is stable:
    - `get`
    - `put`
    - `rm`
    - same-volume `cp`
+   - `mv`
+   - `mkdir`
 
 ## Release discipline
 

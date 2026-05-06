@@ -55,9 +55,27 @@ Freshness policy is hybrid: metadata detects candidate changes; sha256 is comput
 
 A bounded, machine-readable operation an agent can run safely to answer filesystem questions: list, tree, stat, find, grep, search, manifest, changed, diff, cat range.
 
+### Remote-Agent Command Parity
+
+`mfs` uses familiar filesystem verbs where they help users and agents transfer shell intuition: `ls`, `cd`, `cp`, `mv`, `rm`, `mkdir`, `du`, and related query commands. Parity means command-shaped familiarity, not POSIX compatibility. Every operation remains explicit, bounded, JSON-friendly where relevant, and honest about Modal's remote consistency model.
+
+Remote-agent command parity does not imply local mounts, Unix owner/group/permission fidelity, process-global current directory, atomic rename semantics, distributed locks, or unbounded recursive traversal.
+
+### mfs Current Directory
+
+Persistent virtual working directory used by `mfs cd` and commands that accept relative remote paths. It is `mfs` application state, stored under `~/.mfs/`, not the shell process current directory.
+
+Current-directory state uses a per-profile/environment map in `~/.mfs/state.json`. It keeps a `default_cwd` plus `cwd_by_context` keys such as `modal/tabtablabs/main`, so switching between Modal profiles/environments does not silently reuse the wrong remote location.
+
+`mfs pwd` is the first-class way to inspect this state. Users and agents should not need to read `~/.mfs/state.json` directly for normal workflows.
+
+`mfs cd` with no target resets the current directory to the virtual root `Volumes/`. A subsequent `mfs ls` performs root discovery from there. This is not recursive traversal of every directory in every Volume.
+
+Relative paths resolve shell-like against the current virtual cwd. If cwd is `modal://PROFILE/ENV/VOLUME/a/b`, then `cache` resolves to `modal://PROFILE/ENV/VOLUME/a/b/cache`, `..` resolves to `modal://PROFILE/ENV/VOLUME/a`, and `/cache` resolves to `modal://PROFILE/ENV/VOLUME/cache`. `Volumes/` remains the explicit virtual root.
+
 ### Destructive Operation
 
-Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `cp --force`, future sync write modes. Requires explicit confirmation.
+Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `cp --force`, future sync write modes. Requires explicit non-interactive confirmation such as `--yes` or `--force`; interactive `-i` can exist for humans, but agents must not depend on prompts.
 
 ## Resolved decisions
 
@@ -75,6 +93,19 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - Cache invalidation policy is hybrid: metadata for change candidates, hashes for cached content, refresh flags for forcing correctness.
 - Modal file listings expose `path`, `type`, `mtime`, and `size`; no remote etag/content hash should be assumed.
 - MVP `cp` is same-volume only; cross-volume copy is post-MVP.
+- `mfs` will target remote-agent command parity rather than POSIX parity.
+- `mfs cd` is in scope; its current-directory state lives under `~/.mfs/` rather than in shell cwd.
+- `mfs cd` state model is `~/.mfs/state.json` with `default_cwd` and `cwd_by_context` keyed by provider/profile/environment; named sessions can wait.
+- `mfs pwd` is first-class and reports the current virtual cwd plus state metadata, including JSON output for agents.
+- `mfs ls` with no target means list the current virtual cwd. If no cwd exists, return `CWD_NOT_SET`; do not silently list `Volumes/`.
+- `mfs cd` with no target resets cwd to virtual root `Volumes/`; then `mfs ls` performs bounded root discovery, not recursive all-volume listing.
+- `mfs ls` hides dotfiles by default. `mfs ls -a` / `mfs ls --all` includes entries whose basename starts with `.`. JSON output includes `include_hidden`.
+- `mfs ls -l` is an honest Modal metadata long format: type, size, mtime, and path/name. It must not fake Unix owner, group, or permission fields.
+- Mutation commands use agent-safe defaults: destructive actions and overwrites require explicit non-interactive flags (`--yes`/`--force` as appropriate). POSIX-style `-i` prompts are human sugar, not the agent contract.
+- Implementation order is navigation/read parity first (`cd`, `pwd`, `ls -a`, `ls -l`), then read-only `du`, then mutation commands. Do not jump to `cp`/`mv`/`rm` before cwd/path resolution is stable and tested.
+- `mfs du` is read-only but recursive enough to need budgets. `du -s` / `du -sh` default to depth 8 and 10,000 entries, with explicit `--depth` / `--limit` overrides, and must report `partial=true` when caps are hit.
+- Relative command targets resolve shell-like against cwd. `foo` is cwd-relative, `..` is parent, `/foo` is rooted at the current Modal Volume, and `Volumes/` is the explicit virtual root.
+- If a command uses a leading-slash in-volume target such as `/foo` while cwd is not inside a specific Modal Volume, return `CWD_VOLUME_REQUIRED` rather than guessing a volume or treating `/` as local root.
 - v0.0.1 release slice is read-only: `version`, `doctor`, root discovery, bounded `ls`, `stat`, and bounded `cat`.
 - v0.0.1 Modal adapter resolves explicit profile credentials with `use_env=False`, avoids `Client.from_env()`, uses a private `_Client`, tries v2 file-list RPC before v1 fallback, and fails closed when bounded private/proto calls are unavailable.
 - Broad Modal paths can fail even with `max_entries`; surface this as `PATH_TOO_BROAD` and ask the agent/user to narrow the prefix.
