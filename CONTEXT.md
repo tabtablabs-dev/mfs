@@ -38,6 +38,8 @@ Portable JSONL snapshot of known remote file metadata: path, type, size, mtime/f
 
 Local bounded cache of downloaded file bytes or text chunks used for `cat`, `grep`, and search. Cache can be stale and must expose freshness metadata.
 
+Default location is user cache (`~/.cache/mfs/`), but commands accept `--store` for repo-local/project-pinned indexes such as `.mfs/index.sqlite`.
+
 ### Agent Query
 
 A bounded, machine-readable operation an agent can run safely to answer filesystem questions: list, tree, stat, find, grep, search, manifest, changed, diff, cat range.
@@ -58,6 +60,7 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - Remote filesystem paths require explicit profile and environment segments: `Volumes/modal/PROFILE/ENV/VOLUME/path`.
 - Modal adapter is SDK-first, not a wrapper around the `modal volume` CLI.
 - MVP index includes metadata, bounded text content cache, and SQLite FTS5 lexical search; semantic/vector search is post-MVP.
+- Store/cache policy is hybrid: default to user cache, allow explicit `--store` for repo-local reproducibility.
 
 ## Modal Volume concurrency facts
 

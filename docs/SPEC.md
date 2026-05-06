@@ -207,6 +207,31 @@ create virtual table chunks_fts using fts5(
 
 The FTS table may be rebuilt from `chunks`; `chunks` remains the source table for line/byte ranges and cache metadata.
 
+## Store and cache policy
+
+Decision: hybrid store/cache policy.
+
+Defaults:
+
+```text
+~/.cache/mfs/index.sqlite
+~/.cache/mfs/content/
+```
+
+Every command that reads or writes the index accepts an explicit store path:
+
+```text
+--store .mfs/index.sqlite
+```
+
+Behavior:
+
+- User-cache default keeps ordinary use from littering repositories.
+- Repo-local `--store` supports reproducible agent runs and project-pinned indexes.
+- JSON output for index/search/grep/find/changed must include `store_path`.
+- Content cache should be colocated with the selected store unless overridden later.
+- `.mfs/` is ignored by default in this repo, but users may intentionally commit manifests, not caches.
+
 ## Safety defaults
 
 - No command downloads a directory recursively unless explicitly requested.
@@ -262,7 +287,7 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 ## Open decisions for grilling
 
 1. Exact SDK profile plumbing and minimum supported Modal SDK version.
-2. Cache location and invalidation rules.
+2. Cache invalidation rules.
 3. Default max file size for content indexing.
 4. MCP server in MVP or after CLI stabilizes.
 5. Whether to design for local-only index or index stored inside Modal Volume.
