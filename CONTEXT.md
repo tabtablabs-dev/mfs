@@ -119,6 +119,6 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - Volumes v2 improves distinct-file concurrent writing: hundreds of containers can write to distinct files without expected performance degradation.
 - Volumes v2 still has unacceptable same-file last-write-wins semantics for most applications, so a particular file should only have one writer at a time.
 - Volumes v2 can commit via `sync /path/to/mountpoint` inside a Sandbox or Modal shell.
-- `mfs` does not currently create new Modal Volumes. Future Volume creation must use Volumes v2 only.
+- `mfs mkdir NAME` at an environment root creates a new Modal Volume, and new Modal Volumes must always be Volumes v2.
 
 ## Open language questions

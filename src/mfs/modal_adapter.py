@@ -386,7 +386,7 @@ class ModalAdapter:
     async def mkdir_path(self, target: ParsedTarget, *, parents: bool) -> dict[str, Any]:
         self._require_modal_path(target)
         if target.path == "/":
-            return _mkdir_noop_payload(target, parents=parents, semantics="volume_root")
+            return await self._mkdir_volume(target, parents=parents)
         existing_payload = await self._existing_mkdir_payload(target, parents=parents)
         if existing_payload is not None:
             return existing_payload
@@ -407,6 +407,55 @@ class ModalAdapter:
             "created": True,
             "directory_semantics": "hidden_marker_file",
         }
+
+    async def _mkdir_volume(self, target: ParsedTarget, *, parents: bool) -> dict[str, Any]:
+        if await self._volume_exists(target):
+            if parents:
+                return _mkdir_noop_payload(target, parents=parents, semantics="existing_volume")
+            raise MfsError(
+                code="REMOTE_DEST_EXISTS",
+                message="Remote Volume already exists; pass --parents to accept it",
+                uri=target.volume_uri,
+                retryable=False,
+            )
+        async with self.client(target.profile or "") as client:
+            try:
+                response = await self._create_v2_volume(target, client)
+            except Exception as exc:  # noqa: BLE001
+                raise self._convert_modal_error(exc, uri=target.volume_uri) from exc
+        return {
+            "operation": "mkdir",
+            "target_uri": target.volume_uri,
+            "parents": parents,
+            "created": True,
+            "created_resource": "volume",
+            "volume_id": response.volume_id,
+            "volume_version": "v2",
+            "directory_semantics": "modal_volume",
+        }
+
+    async def _volume_exists(self, target: ParsedTarget) -> bool:
+        async with self.client(target.profile or "") as client:
+            try:
+                await self._hydrate_volume(target, client)
+            except MfsError as exc:
+                if exc.code == "REMOTE_NOT_FOUND":
+                    return False
+                raise
+        return True
+
+    async def _create_v2_volume(self, target: ParsedTarget, client: Any) -> Any:
+        api_pb2 = self.bundle()["api_pb2"]
+        request = api_pb2.VolumeGetOrCreateRequest(
+            deployment_name=target.volume or "",
+            environment_name=target.environment,
+            object_creation_type=api_pb2.OBJECT_CREATION_TYPE_CREATE_FAIL_IF_EXISTS,
+            version=api_pb2.VolumeFsVersion.VOLUME_FS_VERSION_V2,
+        )
+        return await asyncio.wait_for(
+            client.stub.VolumeGetOrCreate(request),
+            timeout=self.timeout,
+        )
 
     async def _existing_mkdir_payload(
         self, target: ParsedTarget, *, parents: bool
@@ -644,6 +693,13 @@ class ModalAdapter:
         if name in {"NotFoundError"} or "not found" in message.lower():
             return MfsError(
                 code="REMOTE_NOT_FOUND", message=message or "Remote object not found", uri=uri
+            )
+        if name in {"AlreadyExistsError"} or "already exists" in message.lower():
+            return MfsError(
+                code="REMOTE_DEST_EXISTS",
+                message=message or "Remote destination already exists",
+                uri=uri,
+                retryable=False,
             )
         if name in {"AuthError", "InvalidError"} and "token" in message.lower():
             return MfsError(code="MODAL_AUTH_ERROR", message=message, uri=uri, retryable=False)

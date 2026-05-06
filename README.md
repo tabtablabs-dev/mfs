@@ -33,9 +33,7 @@ mfs mv SRC DST [--force] --yes
 mfs mkdir TARGET [--parents]
 ```
 
-`mfs mkdir` creates directory-like Modal prefixes using a hidden `.mfskeep` marker file because Modal's SDK does not expose an explicit mkdir primitive. Normal `mfs ls` hides this marker by default.
-
-`mfs` does not currently create new Modal Volumes. If a future command adds Volume creation, it must create Volumes v2 only.
+At an environment root such as `Volumes/modal/PROFILE/ENV`, `mfs mkdir NAME` creates a new Modal Volume v2. Inside a Volume, `mfs mkdir path` creates a directory-like Modal prefix using a hidden `.mfskeep` marker file because Modal's SDK does not expose an explicit mkdir primitive. Normal `mfs ls` hides this marker by default.
 
 ## Install from source
 

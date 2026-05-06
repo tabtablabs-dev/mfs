@@ -423,6 +423,40 @@ def test_mkdir_creates_directory_like_marker(monkeypatch) -> None:
     assert payload["marker_uri"] == "modal://tabtablabs/main/vol/new-dir/.mfskeep"
 
 
+def test_mkdir_at_environment_root_creates_v2_volume(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("MFS_STATE_PATH", str(state_path))
+    save_cwd("Volumes/modal/tabtablabs/main", state_path=state_path)
+
+    class FakeAdapter:
+        def __init__(self, *, timeout):
+            pass
+
+        async def mkdir_path(self, parsed, *, parents):
+            assert parsed.volume == "public-records"
+            assert parsed.path == "/"
+            return {
+                "operation": "mkdir",
+                "target_uri": parsed.volume_uri,
+                "parents": parents,
+                "created": True,
+                "created_resource": "volume",
+                "volume_id": "vo-test",
+                "volume_version": "v2",
+                "directory_semantics": "modal_volume",
+            }
+
+    monkeypatch.setattr("mfs.cli.ModalAdapter", FakeAdapter)
+
+    result = invoke("mkdir", "public-records", "--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["target_uri"] == "modal://tabtablabs/main/public-records"
+    assert payload["created_resource"] == "volume"
+    assert payload["volume_version"] == "v2"
+
+
 def test_mkdir_marker_path() -> None:
     from mfs.modal_adapter import _mkdir_marker_path, _parent_modal_path
 

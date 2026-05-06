@@ -6,7 +6,7 @@
 
 ## Current status
 
-The package version is still `v0.0.1`, but the current worktree implements the MVP command surface from `docs/SPEC.md` beyond the original read-only alpha slice. It includes cwd navigation, bounded read/traversal commands, SQLite sidecar indexing/search, manifests/change detection, and guarded mutation commands. `mkdir` creates directory-like Modal prefixes using a hidden `.mfskeep` marker file. `mfs` does not currently create new Modal Volumes; if a future command does, it must create Volumes v2 only.
+The package version is still `v0.0.1`, but the current worktree implements the MVP command surface from `docs/SPEC.md` beyond the original read-only alpha slice. It includes cwd navigation, bounded read/traversal commands, SQLite sidecar indexing/search, manifests/change detection, and guarded mutation commands. `mkdir` creates new Modal Volumes v2 at an environment root and creates directory-like prefixes inside a Volume using a hidden `.mfskeep` marker file.
 
 ## Command surface
 
