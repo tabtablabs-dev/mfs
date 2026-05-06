@@ -43,9 +43,16 @@ Rationale:
 - SDK-first makes structured JSON/error handling easier.
 - CLI subprocess fallback should be limited to `doctor`/debug parity or SDK gaps.
 
-Open adapter detail: exact profile plumbing must be verified. Modal's `Client.from_env()` path is singleton-like and profile-sensitive, so `mfs` must not reuse one active-profile client across different `PROFILE` path segments. Prefer a per-profile client factory/cache that reads the selected profile's token/server settings explicitly. If direct profile plumbing is unsafe or not public enough, isolate a `MODAL_PROFILE=<profile>` subprocess fallback inside the Modal adapter only.
+Resolved adapter detail from spike `spikes/001-modal-profile-adapter`: `mfs` should not use `Client.from_env()` in adapter core. `Client.from_env()` is a process singleton and is a poor fit for paths that carry their own `PROFILE` segment. The adapter should resolve explicit profile credentials with `modal.config.config.get(profile=..., use_env=False)` and open/cache a private Modal `_Client` per `(profile, server_url)`.
 
-Public SDK is the first choice. Adapter-confined private/proto calls are allowed only when needed for bounded agent semantics that public SDK does not expose, notably `VolumeGetFile2(start,len)` byte ranges and `VolumeListFiles2(max_entries)` bounded listings. `mfs doctor` must report which path is active.
+Public SDK remains preferred where it preserves bounded semantics, but adapter-confined private/proto calls are required for MVP agent safety in Modal SDK `1.3.5`:
+
+- Use the internal async `_VolumeManager.list(..., client=...)` for profile-scoped Volume discovery; passing a direct private client into the public synchronicity wrapper hung in the live spike.
+- Use `VolumeGetFile2Request(start,len)` for byte ranges; public `Volume.read_file()` does not expose range parameters.
+- Use `VolumeListFilesRequest/VolumeListFiles2Request(max_entries)` for bounded listings; public `Volume.listdir()`/`iterdir()` do not expose `max_entries`.
+- For file listings, try v2 RPC first and fall back to v1 on unsupported-version errors. Do not trust `VolumeList` metadata alone for v1/v2 selection; the live spike saw `v1` metadata for volumes that required the v2 listing RPC.
+
+`mfs doctor` must report Modal SDK version, active adapter path, profile source, and private/proto availability. If private internals are unavailable or incompatible, commands that depend on bounded semantics must fail closed rather than fall back to unbounded reads/listings.
 
 ## Proposed URI
 
@@ -113,6 +120,20 @@ mfs ls modal://default/main/models/
 mfs cat modal://default/main/models/config.json --lines 1:120
 ```
 
+## v0.0.1 release slice
+
+v0.0.1 is an OSS alpha and intentionally smaller than the full MVP command list. It ships the bounded read-only core needed to validate the architecture:
+
+```text
+mfs version [--json]
+mfs doctor [TARGET] [--json]
+mfs ls TARGET [--limit N] [--recursive] [--json]
+mfs stat TARGET [--json]
+mfs cat TARGET [--bytes START:LEN] [--max-bytes N] [--json]
+```
+
+Deferred from v0.0.1: sidecar index, lexical search, manifests/change detection, and write primitives. These remain in the MVP spec below but must not be described as shipped until implemented and tested.
+
 ## MVP commands
 
 ```text
@@ -168,6 +189,8 @@ Every command that returns structured data must support JSON. Errors should incl
   }
 }
 ```
+
+Modal broad-path failures are first-class errors, not implementation bugs. When Modal returns `ConflictError: Too many files to list in the path`, `mfs` must return a stable `PATH_TOO_BROAD` JSON error with the queried URI, requested limit/depth where relevant, and a suggestion to narrow the prefix. It must not silently switch to unbounded recursive listing or downloading.
 
 ## Sidecar SQLite model
 
@@ -350,8 +373,7 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 
 ## Open decisions for grilling
 
-1. Exact per-profile SDK client plumbing, minimum supported Modal SDK version, and whether private/proto calls are acceptable for byte ranges and `max_entries`.
-2. Default max file size for content indexing.
-3. MCP server in MVP or after CLI stabilizes.
-4. Whether to design for local-only index or index stored inside Modal Volume.
-5. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
+1. Default max file size for future content indexing.
+2. MCP server in MVP or after CLI stabilizes.
+3. Whether to design for local-only index or index stored inside Modal Volume.
+4. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.

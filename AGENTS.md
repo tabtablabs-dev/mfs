@@ -6,33 +6,38 @@
 
 ## Current status
 
-Spec-first repo. Do not implement large surfaces before `docs/SPEC.md` decisions are resolved.
+v0.0.1 alpha implementation exists. The release slice is read-only and intentionally smaller than the full spec: `version`, `doctor`, root discovery, bounded `ls`, `stat`, and bounded `cat`. Do not claim sidecar index, search, manifests, or write primitives are implemented until they are shipped and tested.
 
 ## Command surface
 
-Planned local commands:
+Implemented v0.0.1 commands:
+
+```bash
+uv run mfs version --json
+uv run mfs doctor Volumes/modal/PROFILE/ENV --json
+uv run mfs ls Volumes/modal/PROFILE/ENV --limit 20 --json
+uv run mfs stat Volumes/modal/PROFILE/ENV/VOLUME/path --json
+uv run mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path --bytes 0:4096 --json
+```
+
+Project checks:
 
 ```bash
 just check
-just format
-just test
-just lint
-```
-
-Until implementation exists, docs validation is manual:
-
-```bash
-git status --short
+uv build
 ```
 
 ## File map
 
 ```text
-README.md          project overview
+README.md          project overview and v0.0.1 usage
+CHANGELOG.md       release history
 CONTEXT.md         domain glossary and resolved language
 docs/SPEC.md       product/technical spec under active grilling
-docs/PLANS.md      active execution plan
-ARCHITECTURE.md    proposed boundaries
+docs/releases/     release notes
+src/mfs/           implementation
+tests/             pytest coverage
+ARCHITECTURE.md    boundaries and package layout
 ```
 
 ## Constraints

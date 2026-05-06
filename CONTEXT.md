@@ -75,6 +75,9 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - Cache invalidation policy is hybrid: metadata for change candidates, hashes for cached content, refresh flags for forcing correctness.
 - Modal file listings expose `path`, `type`, `mtime`, and `size`; no remote etag/content hash should be assumed.
 - MVP `cp` is same-volume only; cross-volume copy is post-MVP.
+- v0.0.1 release slice is read-only: `version`, `doctor`, root discovery, bounded `ls`, `stat`, and bounded `cat`.
+- v0.0.1 Modal adapter resolves explicit profile credentials with `use_env=False`, avoids `Client.from_env()`, uses a private `_Client`, tries v2 file-list RPC before v1 fallback, and fails closed when bounded private/proto calls are unavailable.
+- Broad Modal paths can fail even with `max_entries`; surface this as `PATH_TOO_BROAD` and ask the agent/user to narrow the prefix.
 
 ## Modal Volume concurrency facts
 

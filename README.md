@@ -2,27 +2,200 @@
 
 Modal Volume filesystem/query CLI for agents.
 
-`mfs` wraps Modal Volumes with a filesystem-shaped, agent-safe command surface plus a local SQLite index for cheap discovery, grep, search, manifests, and change detection.
+`mfs` makes Modal Volumes feel like a bounded remote filesystem without pretending they are POSIX mounts. It gives agents stable JSON commands for discovery, volume listing, safe directory listing, stat, and byte-capped reads.
 
 ## Status
 
-Spec-first repo. No implementation yet.
+`v0.0.1` alpha. Ready for OSS source release.
 
-## Problem
-
-Modal Volumes are generous and useful as durable remote storage, but their CLI is resource-oriented rather than agent-query-oriented. Agents need to ask filesystem questions repeatedly without recursively downloading or listing everything every turn.
-
-## Intended shape
+Implemented in v0.0.1:
 
 ```text
-mfs ls Volumes/modal/PROFILE/ENV/VOLUME/path --json
-mfs tree Volumes/modal/PROFILE/ENV/VOLUME/path --depth 3 --limit 500
-mfs stat Volumes/modal/PROFILE/ENV/VOLUME/path --json
-mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path --lines 1:200
-mfs find Volumes/modal/PROFILE/ENV/VOLUME --glob '**/*.py'
-mfs grep Volumes/modal/PROFILE/ENV/VOLUME 'pattern' --glob '**/*.{md,py,txt}'
-mfs index Volumes/modal/PROFILE/ENV/VOLUME --store .mfs/index.sqlite
-mfs search Volumes/modal/PROFILE/ENV/VOLUME 'natural language query'
+mfs version [--json]
+mfs doctor [TARGET] [--json]
+mfs ls TARGET [--limit N] [--recursive] [--json]
+mfs stat TARGET [--json]
+mfs cat TARGET [--bytes START:LEN] [--max-bytes N] [--json]
 ```
 
-See `docs/SPEC.md` and `CONTEXT.md`.
+Planned after v0.0.1:
+
+```text
+mfs tree
+mfs index / update
+mfs find / grep / search --lex
+mfs manifest / changed
+mfs get / put / rm / cp guarded write primitives
+MCP server
+```
+
+## Install from source
+
+```bash
+git clone <repo-url> mfs
+cd mfs
+uv sync
+uv run mfs version
+```
+
+For editable local use:
+
+```bash
+uv run mfs doctor --json
+```
+
+`mfs` requires a configured Modal profile:
+
+```bash
+modal profile list
+modal token new
+```
+
+## Addressing model
+
+Primary virtual path syntax:
+
+```text
+Volumes/modal/PROFILE/ENV/VOLUME/path/to/file
+```
+
+Canonical URI syntax, accepted anywhere a target is expected:
+
+```text
+modal://PROFILE/ENV/VOLUME/path/to/file
+```
+
+Both `PROFILE` and `ENV` are explicit on purpose. v0.0.1 does not silently inherit Modal's active profile or environment for remote paths.
+
+Root discovery:
+
+```bash
+mfs ls Volumes/ --json
+mfs ls Volumes/modal --json
+mfs ls Volumes/modal/tabtablabs --json
+mfs ls Volumes/modal/tabtablabs/main --limit 20 --json
+```
+
+## Examples
+
+List configured providers:
+
+```bash
+mfs ls Volumes/ --json
+```
+
+List Modal profiles from local Modal config:
+
+```bash
+mfs ls Volumes/modal --json
+```
+
+List environments for a profile:
+
+```bash
+mfs ls Volumes/modal/PROFILE --json
+```
+
+List volumes in an environment:
+
+```bash
+mfs ls Volumes/modal/PROFILE/ENV --limit 50 --json
+```
+
+List a Volume root without recursive download:
+
+```bash
+mfs ls Volumes/modal/PROFILE/ENV/VOLUME --limit 100 --json
+```
+
+Stat a file:
+
+```bash
+mfs stat Volumes/modal/PROFILE/ENV/VOLUME/path/file.json --json
+```
+
+Read the first 4 KiB of a file:
+
+```bash
+mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path/file.json --bytes 0:4096 --json
+```
+
+## Safety model
+
+v0.0.1 is intentionally read-only against Modal Volumes.
+
+Defaults and guardrails:
+
+- No recursive listing unless `--recursive` is explicit.
+- Every remote listing is capped by `--limit`.
+- Every `cat` is capped by `--max-bytes`.
+- `cat --bytes START:LEN` fails if `LEN > --max-bytes`.
+- Broad Modal paths can fail with `PATH_TOO_BROAD`; `mfs` reports that as a structured error and tells the agent to narrow the prefix.
+- `mfs` does not print Modal token values.
+
+## Modal adapter notes
+
+Modal SDK `1.3.5+` does not expose all bounded operations through public methods. To stay agent-safe, v0.0.1 uses adapter-confined private/proto calls:
+
+- explicit profile credentials via `modal.config.config.get(profile=..., use_env=False)`
+- direct private Modal `_Client` per profile
+- `VolumeListFiles2/VolumeListFiles(max_entries=...)` for bounded listings
+- `VolumeGetFile2(start,len)` for byte-range reads
+
+`mfs doctor --json` reports which adapter path is active.
+
+## JSON errors
+
+Errors use stable machine-readable codes:
+
+```json
+{
+  "error": {
+    "code": "PATH_TOO_BROAD",
+    "message": "Path is too broad for Modal to list safely; narrow the prefix",
+    "retryable": false,
+    "uri": "modal://PROFILE/ENV/VOLUME/path"
+  }
+}
+```
+
+Current codes include:
+
+```text
+INVALID_TARGET
+MODAL_SDK_UNAVAILABLE
+MODAL_PROFILE_NOT_FOUND
+MODAL_AUTH_MISSING
+MODAL_AUTH_ERROR
+REMOTE_NOT_FOUND
+REMOTE_TIMEOUT
+PATH_TOO_BROAD
+BYTE_LIMIT_EXCEEDED
+INVALID_BYTE_RANGE
+MODAL_ERROR
+```
+
+## Development
+
+```bash
+just check
+```
+
+Equivalent:
+
+```bash
+uv run ruff check --fix .
+uv run ruff format .
+uvx pyscn@latest check . --select complexity,deadcode,deps
+uv run pytest
+```
+
+Build distributions:
+
+```bash
+uv build
+```
+
+## License
+
+MIT. See `LICENSE`.
