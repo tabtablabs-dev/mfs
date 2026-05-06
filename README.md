@@ -33,7 +33,9 @@ mfs mv SRC DST [--force] --yes
 mfs mkdir TARGET [--parents]
 ```
 
-`mfs mkdir` currently fails closed with `UNSUPPORTED_OPERATION` because Modal's SDK does not expose an explicit mkdir primitive. Create directory-like paths by uploading files with `put`.
+`mfs mkdir` creates directory-like Modal prefixes using a hidden `.mfskeep` marker file because Modal's SDK does not expose an explicit mkdir primitive. Normal `mfs ls` hides this marker by default.
+
+`mfs` does not currently create new Modal Volumes. If a future command adds Volume creation, it must create Volumes v2 only.
 
 ## Install from source
 
@@ -189,7 +191,7 @@ PATH_TOO_BROAD
 BYTE_LIMIT_EXCEEDED
 INVALID_BYTE_RANGE
 INVALID_LINE_RANGE
-UNSUPPORTED_OPERATION
+REMOTE_PARENT_NOT_FOUND
 UNSUPPORTED_SEARCH_MODE
 MODAL_ERROR
 ```

@@ -752,7 +752,7 @@ def mv_command(
 @click.option("--timeout", type=float, default=30.0, show_default=True)
 @click.option("--json", "json_output", is_flag=True, help="Print structured JSON.")
 def mkdir_command(target: str, parents: bool, timeout: float, json_output: bool) -> None:
-    """Create a remote directory-like target when Modal exposes support."""
+    """Create a remote directory-like target."""
     try:
         parsed = resolve_target(target)
         payload = asyncio.run(ModalAdapter(timeout=timeout).mkdir_path(parsed, parents=parents))

@@ -533,7 +533,7 @@ Baseline guardrails:
 - `cp SRC DST` may create a missing destination, but must not overwrite an existing remote path unless `--force` is passed.
 - `mv SRC DST` may rename/move into a missing destination, but must not overwrite an existing remote path unless `--force` is passed; same-path or same-prefix collisions must fail clearly.
 - `put LOCAL DST` must not overwrite an existing remote path unless `--force` is passed.
-- `mkdir TARGET` creates a directory-like target when Modal supports it; parent creation requires `--parents`.
+- `mkdir TARGET` creates a directory-like target using a hidden `.mfskeep` marker file because Modal does not expose an explicit mkdir primitive; parent creation requires `--parents`.
 - `-i` / `--interactive` may exist for human CLI parity, but it is not the agent contract. Agents should use explicit `--yes`, `--force`, `--dry-run`, and JSON output instead of prompt-dependent flows.
 - Destructive and overwrite JSON responses include operation metadata: `operation`, `source_uri` when applicable, `target_uri`, `recursive`, `overwrote`, and `confirmed_by_flag`.
 
@@ -549,6 +549,7 @@ Baseline guardrails:
 - Volumes v2 supports distinct-file concurrent writes from hundreds of containers without expected performance degradation.
 - Same-file concurrent writes still have last-write-wins semantics in many circumstances; distributed file locking is not supported.
 - Volumes v2 can be committed from shell/Sandbox via `sync /path/to/mountpoint`.
+- `mfs` does not currently create new Modal Volumes. If Volume creation is added later, create Volumes v2 only.
 
 ## Mutation/concurrency model
 

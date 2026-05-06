@@ -395,12 +395,63 @@ def test_cp_rejects_cross_volume() -> None:
     assert payload["error"]["code"] == "CROSS_VOLUME_UNSUPPORTED"
 
 
-def test_mkdir_fails_closed_until_modal_supports_it() -> None:
+def test_mkdir_creates_directory_like_marker(monkeypatch) -> None:
+    class FakeAdapter:
+        def __init__(self, *, timeout):
+            pass
+
+        async def mkdir_path(self, parsed, *, parents):
+            assert parsed.canonical_uri == "modal://tabtablabs/main/vol/new-dir"
+            assert parents is True
+            return {
+                "operation": "mkdir",
+                "target_uri": parsed.canonical_uri,
+                "marker_uri": "modal://tabtablabs/main/vol/new-dir/.mfskeep",
+                "parents": parents,
+                "created": True,
+                "directory_semantics": "hidden_marker_file",
+            }
+
+    monkeypatch.setattr("mfs.cli.ModalAdapter", FakeAdapter)
+
+    result = invoke("mkdir", "Volumes/modal/tabtablabs/main/vol/new-dir", "--parents", "--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["operation"] == "mkdir"
+    assert payload["created"] is True
+    assert payload["marker_uri"] == "modal://tabtablabs/main/vol/new-dir/.mfskeep"
+
+
+def test_mkdir_marker_path() -> None:
+    from mfs.modal_adapter import _mkdir_marker_path, _parent_modal_path
+
+    assert _mkdir_marker_path("public-records") == "/public-records/.mfskeep"
+    assert _mkdir_marker_path("/public-records") == "/public-records/.mfskeep"
+    assert _parent_modal_path("/public-records") == "/"
+    assert _parent_modal_path("/a/b") == "/a"
+
+
+def test_mkdir_existing_target_requires_parents(monkeypatch) -> None:
+    class FakeAdapter:
+        def __init__(self, *, timeout):
+            pass
+
+        async def mkdir_path(self, parsed, *, parents):
+            raise MfsError(
+                code="REMOTE_DEST_EXISTS",
+                message="Remote directory-like target already exists; pass --parents to accept it",
+                uri=parsed.canonical_uri,
+                retryable=False,
+            )
+
+    monkeypatch.setattr("mfs.cli.ModalAdapter", FakeAdapter)
+
     result = invoke("mkdir", "Volumes/modal/tabtablabs/main/vol/new-dir", "--json")
 
     assert result.exit_code == 2
     payload = json.loads(result.output)
-    assert payload["error"]["code"] == "UNSUPPORTED_OPERATION"
+    assert payload["error"]["code"] == "REMOTE_DEST_EXISTS"
 
 
 def test_normalize_modal_path_handles_relative_and_absolute_entries() -> None:

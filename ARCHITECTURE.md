@@ -62,4 +62,6 @@ Guarded write commands are exposed through the Modal adapter:
 - `rm` uses `Volume.remove_file()` after `--yes`.
 - `cp` uses `Volume.copy_files()` only within the same profile/environment/volume.
 - `mv` is copy-then-remove and requires `--yes`.
-- `mkdir` fails closed with `UNSUPPORTED_OPERATION` because Modal's SDK does not expose an explicit mkdir primitive.
+- `mkdir` creates directory-like prefixes by uploading a hidden `.mfskeep` marker file because Modal's SDK does not expose an explicit mkdir primitive.
+
+`mfs` does not currently create new Modal Volumes. If Volume creation is added later, it must create Volumes v2 only.

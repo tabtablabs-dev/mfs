@@ -10,7 +10,8 @@ import asyncio
 import base64
 import contextlib
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -384,14 +385,55 @@ class ModalAdapter:
 
     async def mkdir_path(self, target: ParsedTarget, *, parents: bool) -> dict[str, Any]:
         self._require_modal_path(target)
+        if target.path == "/":
+            return _mkdir_noop_payload(target, parents=parents, semantics="volume_root")
+        existing_payload = await self._existing_mkdir_payload(target, parents=parents)
+        if existing_payload is not None:
+            return existing_payload
+        await self._validate_mkdir_parent(target, parents=parents)
+        marker_path = _mkdir_marker_path(target.path)
+        async with self.client(target.profile or "") as client:
+            volume = await self._hydrate_volume(target, client)
+            try:
+                async with volume.batch_upload(force=False) as batch:
+                    batch.put_file(BytesIO(b""), marker_path)
+            except Exception as exc:  # noqa: BLE001
+                raise self._convert_modal_error(exc, uri=target.canonical_uri) from exc
+        return {
+            "operation": "mkdir",
+            "target_uri": target.canonical_uri,
+            "marker_uri": f"{target.volume_uri}{marker_path}",
+            "parents": parents,
+            "created": True,
+            "directory_semantics": "hidden_marker_file",
+        }
+
+    async def _existing_mkdir_payload(
+        self, target: ParsedTarget, *, parents: bool
+    ) -> dict[str, Any] | None:
+        if not await self.path_exists(target):
+            return None
+        if parents:
+            return _mkdir_noop_payload(target, parents=parents, semantics="existing_prefix")
         raise MfsError(
-            code="UNSUPPORTED_OPERATION",
-            message=(
-                "Modal SDK does not expose an explicit mkdir operation; create directories via put"
-            ),
+            code="REMOTE_DEST_EXISTS",
+            message="Remote directory-like target already exists; pass --parents to accept it",
             uri=target.canonical_uri,
             retryable=False,
-            details={"parents": parents},
+        )
+
+    async def _validate_mkdir_parent(self, target: ParsedTarget, *, parents: bool) -> None:
+        parent_path = _parent_modal_path(target.path)
+        if parents or parent_path == "/":
+            return
+        if await self.path_exists(replace(target, path=parent_path)):
+            return
+        raise MfsError(
+            code="REMOTE_PARENT_NOT_FOUND",
+            message="Remote parent path does not exist; pass --parents to create parents",
+            uri=target.canonical_uri,
+            retryable=False,
+            details={"parent_path": parent_path},
         )
 
     async def _get_file_response(
@@ -692,6 +734,25 @@ def _find_exact_entry(entries: list[FsEntry], path: str) -> FsEntry | None:
         if _normalize_modal_path(entry.path) == normalized:
             return entry
     return None
+
+
+def _parent_modal_path(path: str) -> str:
+    parent = PurePosixPath(_normalize_modal_path(path)).parent.as_posix()
+    return _normalize_modal_path(parent)
+
+
+def _mkdir_marker_path(path: str) -> str:
+    return f"{_normalize_modal_path(path).rstrip('/')}/.mfskeep"
+
+
+def _mkdir_noop_payload(target: ParsedTarget, *, parents: bool, semantics: str) -> dict[str, Any]:
+    return {
+        "operation": "mkdir",
+        "target_uri": target.canonical_uri,
+        "parents": parents,
+        "created": False,
+        "directory_semantics": semantics,
+    }
 
 
 def _cat_result_from_bytes(
