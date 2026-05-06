@@ -46,6 +46,57 @@ modal://dev/agent-workspaces/run-123/trace.jsonl
 
 Decision pending: whether `ENV` is required or defaults from Modal profile.
 
+## Alternative remote-filesystem address
+
+Instead of forcing URI syntax into every command, `mfs` can treat Modal Volumes like roots on a remote server:
+
+```text
+Volumes/modal/ENV/VOLUME/path/to/file
+```
+
+Examples:
+
+```text
+Volumes/modal/main/models/qwen/model.safetensors
+Volumes/modal/dev/agent-workspaces/run-123/trace.jsonl
+```
+
+Pros:
+
+- Feels like a normal filesystem path.
+- Better matches the product promise: make Modal Volumes less awkward for filesystem workflows.
+- Easy for agents to compose with existing path-oriented tools and mental models.
+- Leaves room for other providers later:
+
+```text
+Volumes/s3/BUCKET/path
+Volumes/r2/ACCOUNT/BUCKET/path
+Volumes/local/name/path
+```
+
+Cons:
+
+- Looks like a relative local path unless reserved/documented clearly.
+- Needs careful parsing so users do not expect it to exist on disk.
+- Shell completion and error messages must explain that `Volumes/...` is a virtual path handled by `mfs`.
+
+Recommended resolution: use remote-filesystem paths as the primary CLI UX and keep `modal://ENV/VOLUME/path` as a canonical machine URI accepted everywhere.
+
+Primary examples:
+
+```text
+mfs ls Volumes/modal/main/models/
+mfs cat Volumes/modal/main/models/config.json --range 1:120
+mfs put ./artifact.bin Volumes/modal/main/artifacts/artifact.bin
+```
+
+Machine/canonical examples:
+
+```text
+mfs ls modal://main/models/
+mfs cat modal://main/models/config.json --range 1:120
+```
+
 ## MVP commands
 
 ```text
