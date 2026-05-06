@@ -4,6 +4,12 @@ Modal Volume filesystem/query CLI for agents.
 
 `mfs` makes Modal Volumes feel like a bounded remote filesystem without pretending they are POSIX mounts. It gives agents stable JSON commands for discovery, volume listing, safe directory listing, stat, and byte-capped reads.
 
+Send this to your agent:
+
+```text
+Clone https://github.com/tabtablabs-dev/mfs, install the repo's SKILL.md as your mfs agent skill, run uv sync, verify the CLI with uv run mfs version --json and uv run mfs doctor Volumes/modal/PROFILE/ENV --json, then start exploring with uv run mfs ls Volumes/modal/PROFILE/ENV --limit 20 --json and bounded reads like uv run mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path --bytes 0:4096 --json.
+```
+
 ## Status
 
 The package version is `v0.0.1`. The current worktree implements the MVP command surface from `docs/SPEC.md`.
