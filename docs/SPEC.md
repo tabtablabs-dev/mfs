@@ -1,0 +1,154 @@
+# mfs Spec
+
+## Goal
+
+Build a CLI that lets agents query and safely manipulate Modal Volumes as if they were inspecting a normal filesystem, while respecting Modal’s remote, snapshot/commit/reload semantics.
+
+## Non-goals for MVP
+
+- POSIX/FUSE/NFS mount.
+- Bidirectional rsync clone.
+- Multi-cloud storage abstraction.
+- Semantic embeddings by default.
+- Hidden background mutation of Modal state.
+
+## Users
+
+- AI agents needing reliable filesystem context from Modal Volumes.
+- Human operators who want inspectable CLI commands and manifests.
+- Modal users storing model artifacts, datasets, logs, generated outputs, and agent workspaces.
+
+## Core use cases
+
+1. Inspect remote tree without downloading it.
+2. Find candidate files by glob, type, size, mtime, or path terms.
+3. Read bounded slices of text files.
+4. Grep/search cached/indexed text.
+5. Produce manifests for audit/change detection.
+6. Upload/download specific files or directories explicitly.
+7. Delete/copy/move with guardrails.
+8. Expose all above as JSON for agent tools/MCP.
+
+## Proposed URI
+
+```text
+modal://ENV/VOLUME/path/to/file
+```
+
+Examples:
+
+```text
+modal://main/models/qwen/model.safetensors
+modal://dev/agent-workspaces/run-123/trace.jsonl
+```
+
+Decision pending: whether `ENV` is required or defaults from Modal profile.
+
+## MVP commands
+
+```text
+mfs ls URI [--json]
+mfs tree URI [--depth N] [--limit N] [--json]
+mfs stat URI [--json]
+mfs cat URI [--range START:END] [--max-bytes N]
+mfs get URI LOCAL_DEST [--force]
+mfs put LOCAL_PATH URI [--force]
+mfs rm URI [--recursive] --yes
+mfs cp SRC_URI DST_URI [--recursive] [--force]
+mfs find URI --glob GLOB [--size EXPR] [--mtime EXPR] [--json]
+mfs grep URI PATTERN [--glob GLOB] [--context N] [--json]
+mfs index URI [--store PATH] [--max-bytes N]
+mfs update URI [--store PATH]
+mfs manifest URI [--jsonl]
+mfs changed URI --since MANIFEST_OR_INDEX [--json]
+mfs doctor URI [--json]
+```
+
+## Later commands
+
+```text
+mfs search URI QUERY [--lex|--semantic|--hybrid]
+mfs sql SQL [--store PATH]
+mfs diff URI_A URI_B
+mfs mv SRC_URI DST_URI --yes
+mfs sync LOCAL_DIR URI --dry-run
+mfs mcp
+```
+
+## Output contract
+
+Every command that returns structured data must support JSON. Errors should include:
+
+```json
+{
+  "error": {
+    "code": "REMOTE_NOT_FOUND",
+    "message": "Path not found",
+    "uri": "modal://main/vol/path",
+    "retryable": false
+  }
+}
+```
+
+## Sidecar SQLite model
+
+```sql
+create table files (
+  volume_uri text not null,
+  path text not null,
+  type text not null,
+  size integer,
+  mtime text,
+  etag text,
+  sha256 text,
+  mime text,
+  ext text,
+  content_cached integer not null default 0,
+  remote_seen_at text not null,
+  indexed_at text,
+  primary key (volume_uri, path)
+);
+
+create table chunks (
+  volume_uri text not null,
+  path text not null,
+  chunk_id integer not null,
+  start_byte integer,
+  end_byte integer,
+  start_line integer,
+  end_line integer,
+  text text,
+  primary key (volume_uri, path, chunk_id)
+);
+```
+
+FTS5 virtual table can index `chunks.text` after MVP metadata is stable.
+
+## Safety defaults
+
+- No command downloads a directory recursively unless explicitly requested.
+- `cat` has default byte cap.
+- `index` skips files over default cap unless `--max-bytes` raised.
+- `rm`, overwrite, and future sync-write require `--yes` or `--force` as appropriate.
+- JSON errors must be stable enough for agents to branch on.
+- Secrets and binary blobs should not be blindly indexed as text.
+
+## Modal-specific constraints to preserve
+
+- Modal Volumes are not a normal live filesystem.
+- Remote state can involve commit/reload visibility semantics inside Modal functions.
+- CLI operations are explicit remote operations.
+- Large file counts and inode limits affect crawl/index strategy.
+
+## Open decisions for grilling
+
+1. URI shape and environment/profile handling.
+2. MVP implementation language/package: Python + Click + Modal SDK vs shelling out to `modal volume`.
+3. Whether metadata-only index is MVP, or FTS grep/search must be MVP.
+4. Cache location and invalidation rules.
+5. Default max file size for content indexing.
+6. Whether `mfs search` means lexical search first or vector/hybrid search.
+7. MCP server in MVP or after CLI stabilizes.
+8. Whether to design for local-only index or index stored inside Modal Volume.
+9. How much write coverage MVP should expose.
+10. Whether to support multiple Modal profiles/workspaces.

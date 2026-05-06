@@ -1,0 +1,28 @@
+[project]
+name = "mfs"
+version = "0.0.0"
+description = "Modal Volume filesystem/query CLI for agents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "click>=8.1",
+]
+
+[project.scripts]
+mfs = "mfs.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
