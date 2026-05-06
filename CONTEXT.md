@@ -26,6 +26,15 @@ Volumes/modal/PROFILE/ENV/VOLUME/path
 
 The profile and environment segments are required in MVP to avoid hidden Modal default auth/profile/environment state.
 
+Root discovery paths are also part of the filesystem metaphor:
+
+```text
+Volumes/
+Volumes/modal/
+Volumes/modal/PROFILE/
+Volumes/modal/PROFILE/ENV/
+```
+
 ### Sidecar Index
 
 Local SQLite database maintained by `mfs`. Stores file metadata, optional content chunks, FTS rows, and freshness data. It is a query accelerator, not the source of truth.
@@ -64,6 +73,8 @@ Any command that removes or overwrites remote data: `rm`, `put --force`, `mv`, `
 - MVP index includes metadata, bounded text content cache, and SQLite FTS5 lexical search; semantic/vector search is post-MVP.
 - Store/cache policy is hybrid: default to user cache, allow explicit `--store` for repo-local reproducibility.
 - Cache invalidation policy is hybrid: metadata for change candidates, hashes for cached content, refresh flags for forcing correctness.
+- Modal file listings expose `path`, `type`, `mtime`, and `size`; no remote etag/content hash should be assumed.
+- MVP `cp` is same-volume only; cross-volume copy is post-MVP.
 
 ## Modal Volume concurrency facts
 

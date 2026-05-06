@@ -18,7 +18,7 @@ Modal Volumes are generous and useful as durable remote storage, but their CLI i
 mfs ls Volumes/modal/PROFILE/ENV/VOLUME/path --json
 mfs tree Volumes/modal/PROFILE/ENV/VOLUME/path --depth 3 --limit 500
 mfs stat Volumes/modal/PROFILE/ENV/VOLUME/path --json
-mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path --range 1:200
+mfs cat Volumes/modal/PROFILE/ENV/VOLUME/path --lines 1:200
 mfs find Volumes/modal/PROFILE/ENV/VOLUME --glob '**/*.py'
 mfs grep Volumes/modal/PROFILE/ENV/VOLUME 'pattern' --glob '**/*.{md,py,txt}'
 mfs index Volumes/modal/PROFILE/ENV/VOLUME --store .mfs/index.sqlite

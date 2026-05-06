@@ -43,7 +43,9 @@ Rationale:
 - SDK-first makes structured JSON/error handling easier.
 - CLI subprocess fallback should be limited to `doctor`/debug parity or SDK gaps.
 
-Open adapter detail: exact profile plumbing must be verified. If the SDK cannot select Modal profiles directly, `mfs` should isolate profile selection in the Modal adapter rather than leaking it through command handlers.
+Open adapter detail: exact profile plumbing must be verified. Modal's `Client.from_env()` path is singleton-like and profile-sensitive, so `mfs` must not reuse one active-profile client across different `PROFILE` path segments. Prefer a per-profile client factory/cache that reads the selected profile's token/server settings explicitly. If direct profile plumbing is unsafe or not public enough, isolate a `MODAL_PROFILE=<profile>` subprocess fallback inside the Modal adapter only.
+
+Public SDK is the first choice. Adapter-confined private/proto calls are allowed only when needed for bounded agent semantics that public SDK does not expose, notably `VolumeGetFile2(start,len)` byte ranges and `VolumeListFiles2(max_entries)` bounded listings. `mfs doctor` must report which path is active.
 
 ## Proposed URI
 
@@ -100,7 +102,7 @@ Primary examples:
 
 ```text
 mfs ls Volumes/modal/default/main/models/
-mfs cat Volumes/modal/default/main/models/config.json --range 1:120
+mfs cat Volumes/modal/default/main/models/config.json --lines 1:120
 mfs put ./artifact.bin Volumes/modal/default/main/artifacts/artifact.bin
 ```
 
@@ -108,7 +110,7 @@ Machine/canonical examples:
 
 ```text
 mfs ls modal://default/main/models/
-mfs cat modal://default/main/models/config.json --range 1:120
+mfs cat modal://default/main/models/config.json --lines 1:120
 ```
 
 ## MVP commands
@@ -117,18 +119,28 @@ mfs cat modal://default/main/models/config.json --range 1:120
 mfs ls URI [--json]
 mfs tree URI [--depth N] [--limit N] [--json]
 mfs stat URI [--json]
-mfs cat URI [--range START:END] [--max-bytes N]
-mfs get URI LOCAL_DEST [--force]
-mfs put LOCAL_PATH URI [--force]
+mfs cat URI [--bytes START:LEN] [--lines START:END] [--max-bytes N] [--refresh]
+mfs get URI LOCAL_DEST [--recursive] [--force]
+mfs put LOCAL_PATH URI [--recursive] [--force]
 mfs rm URI [--recursive] --yes
-mfs cp SRC_URI DST_URI [--recursive] [--force]
+mfs cp SRC_URI DST_URI [--recursive] [--force]  # MVP: same profile/env/volume only
 mfs find URI --glob GLOB [--size EXPR] [--mtime EXPR] [--json]
 mfs grep URI PATTERN [--glob GLOB] [--context N] [--json]
+mfs search URI QUERY [--lex] [--json]
 mfs index URI [--store PATH] [--max-bytes N]
 mfs update URI [--store PATH]
 mfs manifest URI [--jsonl]
 mfs changed URI --since MANIFEST_OR_INDEX [--json]
 mfs doctor URI [--json]
+```
+
+Root discovery is also MVP:
+
+```text
+mfs ls Volumes/
+mfs ls Volumes/modal/
+mfs ls Volumes/modal/PROFILE/
+mfs ls Volumes/modal/PROFILE/ENV/
 ```
 
 ## Later commands
@@ -151,7 +163,7 @@ Every command that returns structured data must support JSON. Errors should incl
   "error": {
     "code": "REMOTE_NOT_FOUND",
     "message": "Path not found",
-    "uri": "modal://main/vol/path",
+    "uri": "modal://default/main/vol/path",
     "retryable": false
   }
 }
@@ -164,17 +176,30 @@ Decision: MVP index includes metadata, bounded text content cache, and SQLite FT
 This means `grep` and `search --lex` are MVP features, backed by cached text chunks. Indexing must skip or mark files that are too large, binary, likely secret-bearing, or otherwise unsafe to decode as text.
 
 ```sql
+create table volumes (
+  canonical_uri text primary key,
+  profile text not null,
+  environment text not null,
+  name text not null,
+  volume_id text,
+  volume_version integer,
+  workspace_id text,
+  workspace_name text,
+  seen_at text not null
+);
+
 create table files (
   volume_uri text not null,
+  volume_id text,
   path text not null,
   type text not null,
   size integer,
-  mtime text,
-  etag text,
+  mtime integer,
   sha256 text,
   mime text,
   ext text,
-  content_cached integer not null default 0,
+  cache_state text not null default 'metadata_only',
+  skip_reason text,
   remote_seen_at text not null,
   indexed_at text,
   primary key (volume_uri, path)
@@ -268,8 +293,14 @@ Correctness language:
 ## Safety defaults
 
 - No command downloads a directory recursively unless explicitly requested.
+- `get` requires `--recursive` when the remote path is a directory.
+- `put` requires `--recursive` when the local path is a directory.
 - `cat` has default byte cap.
+- `cat --bytes START:LEN` maps to Modal byte-range reads when available; public SDK fallback may read more and slice locally within `--max-bytes`.
+- `cat --lines START:END` is text/index-backed or bounded best effort; it must not scan unbounded files silently.
 - `index` skips files over default cap unless `--max-bytes` raised.
+- `cp` in MVP is only same profile/environment/volume. Cross-volume copy is post-MVP or explicit `get` + `put`.
+- `cp --recursive` must fail clearly for v1 Volumes because Modal SDK does not support recursive copy for v1.
 - `rm`, overwrite, and future sync-write require `--yes` or `--force` as appropriate.
 - JSON errors must be stable enough for agents to branch on.
 - Secrets and binary blobs should not be blindly indexed as text.
@@ -302,8 +333,8 @@ Resolved MVP stance:
 Candidate queue design if needed:
 
 ```text
-mfs mutate enqueue --op put --src ./file --dst modal://env/vol/path
-mfs mutate run --queue modal://env/vol/.mfs/mutations
+mfs mutate enqueue --op put --src ./file --dst modal://profile/env/vol/path
+mfs mutate run --queue modal://profile/env/vol/.mfs/mutations
 mfs mutate status
 ```
 
@@ -319,9 +350,8 @@ Decision: cooperative queuing is not core to MVP. MVP should warn, expose primit
 
 ## Open decisions for grilling
 
-1. Exact SDK profile plumbing and minimum supported Modal SDK version.
+1. Exact per-profile SDK client plumbing, minimum supported Modal SDK version, and whether private/proto calls are acceptable for byte ranges and `max_entries`.
 2. Default max file size for content indexing.
 3. MCP server in MVP or after CLI stabilizes.
 4. Whether to design for local-only index or index stored inside Modal Volume.
 5. Whether `mv` belongs in MVP or waits until after `cp`/`rm` safety semantics are proven.
-6. Whether to support multiple Modal profiles/workspaces.
